@@ -5,22 +5,29 @@ import os
 from datetime import datetime, timedelta
 import re
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI
 from booking_client import BookingComAPI
 from flight_client import BookingComFlightsAPI
 from database import db, User, Conversation, Message, TravelSuggestion, Profile
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
 
+import google.generativeai as genai  # <-- ADD THIS
+
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///travel_agent.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_TYPE'] = 'filesystem'
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=GOOGLE_API_KEY)
 
+
+client = OpenAI(api_key="sk-BpS2OBDVe9rAf1_EWWNS5Q")
 # Initialize extensions
 CORS(app, 
      supports_credentials=True,
@@ -29,9 +36,6 @@ CORS(app,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 Session(app)
 db.init_app(app)
-
-# Initialize OpenAI
-openai.api_key = os.getenv('OPENAI_API_KEY')
 
 # Helper functions
 def create_google_maps_url(place_name: str, destination: str) -> str:
@@ -417,18 +421,32 @@ Extract these fields:
 
 ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
     
-    # Call OpenAI
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            *messages
-        ],
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",  # Fast and capable model
+        system_instruction=system_prompt
+    )
+
+    generation_config = genai.GenerationConfig(
         temperature=0.7,
-        max_tokens=1200
+        max_output_tokens=1200
+    )
+
+    gemini_messages = []
+    for msg in messages:
+        # Gemini's 'model' role is equivalent to OpenAI's 'assistant'
+        role = "model" if msg["role"] == "assistant" else msg["role"]
+        gemini_messages.append({
+            "role": role,
+            "parts": [msg["content"]]
+        })
+
+    response = model.generate_content(
+        gemini_messages,
+        generation_config=generation_config
     )
     
-    ai_response = response.choices[0].message.content
+    # 5. Get the text response
+    ai_response = response.text
     
     # Extract structured data
     extract_match = re.search(r'\|\|\|EXTRACT\|\|\|(.*?)\|\|\|END\|\|\|', ai_response, re.DOTALL)
