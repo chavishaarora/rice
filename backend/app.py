@@ -79,7 +79,7 @@ def normalize_date(date_str: str) -> date:
 
 def parse_recommendations_with_links(response: str, destination: str) -> str:
     """Add Google Maps links to activities in the response"""
-    place_pattern = r'(?:Visit|Dine at|Explore|Try|Experience|Enjoy|Go to|See|Check out|Discover)\s+([^-\n.;,]*?)(?:\s*[-:.;,]|$|\n)'
+    place_pattern = r'(?:Visit|Dine at|Explore|Try|Experience|Enjoy|Go to|See|Check out|Discover|Browse|Sample|Hike|Trek|Climb|Tour|Take|Do|Participate in|Attend|Join|Relax at|Swim at|Kayak in|Bike through|Walk to|Drive to|Sail on|Surf at|Ski on|Watch|Taste|Drink|Eat at|Have|Book|Reserve|Book a tour|Take a tour|Go on|View|Visit the|Go for|Catch|Watch the|Ride|Take a|Have a|Enjoy the|Admire|Appreciate|See the|Walk around|Stroll through|Wander in)\s+([^-\n.;,]*?)(?:\s*[-:.;,]|$|\n)'
     
     enhanced_response = response
     matches = re.finditer(place_pattern, response, re.IGNORECASE)
@@ -241,7 +241,7 @@ def get_user():
     if not user_id:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
     
@@ -329,59 +329,169 @@ def travel_chat():
     
     # Get conversation state
     prefs = conversation.preferences or {}
+    has_origin = prefs.get('origin')
     has_destination = conversation.destination or prefs.get('destination')
+    has_travelers = prefs.get('number_of_travelers')
+    has_weather_preference = prefs.get('weather_preference')
+    has_activities = prefs.get('activities')
+    has_budget = conversation.budget or prefs.get('budget')
+    has_budget_allocation = prefs.get('budget_allocation')
     has_arrival_date = prefs.get('arrival_date')
     has_departure_date = prefs.get('departure_date')
-    has_dates = has_arrival_date and has_departure_date # We need both
-    has_budget = conversation.budget or prefs.get('budget')
+    has_dates = has_arrival_date and has_departure_date
+    has_flexibility = prefs.get('date_flexibility')
+    has_confirmed = prefs.get('confirmed')
     
-    # Build system prompt
-    system_prompt = """You are an intelligent AI travel agent. Your goal is to help users plan their perfect trip by gathering information and providing real hotel recommendations from Booking.com.
+    # Build system prompt based on conversation stage
+    system_prompt = """You are an intelligent, minimal, and structured AI travel assistant.
 
-CONVERSATION STAGE RULES:
-"""
-    
-    can_search_hotels = has_destination and has_dates and has_budget
+        Your task is to help the user plan their trip step-by-step. 
+        You MUST strictly follow the conversation stages defined below. 
+        Do NOT add friendly reactions or commentary. 
+        Do NOT repeat any previously confirmed information. 
+        Do NOT say things like "Great!", "Okay!", "Sounds good!", or "I'll help you plan it". 
+        Each response should only:
+        1. Ask the next relevant question.
+        2. Contain ONLY the question and optional brief context.
+        3. Be maximum 3 sentences long.
+        4. End naturally without filler text.
+
+        Always stay concise, factual, and focused.
+
+        CONVERSATION STAGE RULES:"""
     
     if not has_destination:
         system_prompt += """
-STAGE 1: GET DESTINATION
-- Ask where they want to travel
-- Be friendly and conversational
-- KEEP YOUR RESPONSE TO MAX 2 SENTENCES"""
-    elif not has_dates:
-        system_prompt += """
-STAGE 2: GET DATES
-- Ask for their travel dates (check-in and check-out)
-- KEEP YOUR RESPONSE TO MAX 2 SENTENCES"""
-    elif not has_budget:
-        system_prompt += """
-STAGE 3: GET BUDGET
-- Ask for their budget for accommodation
-- KEEP YOUR RESPONSE TO MAX 2 SENTENCES"""
-    elif can_search_hotels:
-        arrival_date = prefs.get('arrival_date')
-        departure_date = prefs.get('departure_date')
+    STAGE 1: GET DESTINATION
+    - Ask where they'd like to travel to — their **destination city or country**
+    - If they don't have a specific place in mind, ask about their **preferred weather/climate** (tropical, temperate, cold, dry, rainy, etc.) and suggest **2–3 destination options**
+    - Do NOT ask about origin, activities, or budget yet
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_origin:
         system_prompt += f"""
-STAGE 4: PROVIDE HOTEL RECOMMENDATIONS
-Current Trip Details:
-- Destination: {has_destination}
-- Check-in: {arrival_date}
-- Check-out: {departure_date}
-- Budget: {has_budget}"""
+    STAGE 2: GET ORIGIN (Destination: {has_destination})
+    - Ask where they'll be traveling **from** — their **origin city or country**
+    - Explain that this helps plan **flight routes and travel times**
+    - Do NOT ask about travelers, activities, dates, or budget yet
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_travelers:
+        system_prompt += f"""
+    STAGE 3: GET NUMBER OF TRAVELERS
+    - Ask if they're traveling **solo** or with others
+    - Ask for the **total number of travelers** (including them)
+    - Explain this helps plan accommodations and group activities
+    - Do NOT ask about activities, dates, or budget yet
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_activities:
+        system_prompt += f"""
+    STAGE 4: GET ACTIVITY PREFERENCES
+    - Ask what type of **activities** they're interested in:
+    * Relaxing (beach, spa, cultural tours, museums)
+    * Adventurous (hiking, water sports, nightlife)
+    * A **mix of both**
+    - Do NOT ask about budget or dates yet
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_budget:
+        system_prompt += f"""
+    STAGE 5: GET BUDGET
+    - Ask for their **total trip budget**
+    - Then ask roughly how they'd like to **allocate it**:
+    * Accommodation
+    * Flights
+    * Activities
+    - Do NOT provide recommendations yet
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_budget_allocation:
+        system_prompt += f"""
+    STAGE 6: ALLOCATE BUDGET
+    - Confirm they have a total budget of **{has_budget}**
+    - Ask them to divide it across:
+    * **Accommodation**
+    * **Flights**
+    * **Activities**
+    - Ensure the total equals 100%
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_dates:
+        system_prompt += f"""
+    STAGE 7: GET DATES
+    - Ask for their **check-in** and **check-out** dates
+    - Ask if the dates are **flexible** or fixed
+    - Explain that flexibility may help find **better prices**
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_flexibility:
+        system_prompt += f"""
+    STAGE 8: DATE FLEXIBILITY
+    - Ask if their travel dates are **strictly fixed** or if they can shift by **±3–7 days**
+    - Mention this will affect **flight and hotel availability**
+    - KEEP YOUR RESPONSE TO MAX 3 SENTENCES"""
+
+    elif not has_confirmed:
+        system_prompt += f"""
+    STAGE 9: CONFIRMATION — REVIEW ALL DETAILS
+    Show all collected data clearly and ask for confirmation:
+
+    "Let me confirm your trip details:
+    ✈️ **Destination:** {has_destination}
+    🌍 **Origin:** {has_origin}
+    👥 **Number of Travelers:** {has_travelers}
+    🌤️ **Weather Preference:** {has_weather_preference}
+    🎯 **Activities:** {has_activities}
+    💰 **Budget:** {has_budget}
+    📊 **Budget Allocation:** {has_budget_allocation}
+    📅 **Check-in:** {has_arrival_date}
+    📅 **Check-out:** {has_departure_date}
+    🔄 **Flexibility:** {has_flexibility}
+
+    Is this correct? Reply **'yes'** to proceed with recommendations, or tell me what to change."
+
+    - Do NOT provide any recommendations yet
+    - KEEP YOUR RESPONSE CONCISE — just show the details and ask for confirmation"""
+    
+    else:
+        # All data collected and confirmed - provide recommendations
+        arrival_date_obj = normalize_date(str(has_arrival_date))
+        departure_date_obj = normalize_date(str(has_departure_date))
         
-        # Parse dates and search for hotels
-        arrival_date_obj = normalize_date(str(has_dates))
-        departure_date_obj = normalize_date(str(has_dates))
-        
-        # Extract budget number
+        # Extract budget number for hotel search
         budget_max = 1000
         budget_match = re.search(r'(\d+)', str(has_budget))
         if budget_match:
             budget_max = int(budget_match.group(1))
         
+        # Calculate hotel budget based on allocation
+        if has_budget_allocation and isinstance(has_budget_allocation, dict):
+            accommodation_percent = has_budget_allocation.get('accommodation', 40) / 100
+            budget_max = int(budget_max * accommodation_percent)
+        
+        system_prompt += f"""
+STAGE 10: PROVIDE RECOMMENDATIONS
+Current Trip Details:
+- Origin: {has_origin}
+- Destination: {has_destination}
+- Number of Travelers: {has_travelers}
+- Weather Preference: {has_weather_preference}
+- Activities: {has_activities}
+- Total Budget: {has_budget}
+- Budget Allocation: {has_budget_allocation}
+- Check-in: {has_arrival_date}
+- Check-out: {has_departure_date}
+- Flexibility: {has_flexibility}
+"""
+        
         # Search hotels
-        hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
+        hotel_data = search_hotels(
+            has_destination, 
+            arrival_date_obj.isoformat(), 
+            departure_date_obj.isoformat(), 
+            budget_max
+        )
         
         if hotel_data:
             booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
@@ -397,41 +507,119 @@ You MUST include this exact hotel recommendation in your response:
 📝 {hotel_data['hotel_description']}
 🔗 Book now: {booking_url}
 
-INSTRUCTIONS:
+HOTEL INSTRUCTIONS:
 1. Start by saying you found a hotel on Booking.com
-2. Copy the hotel details EXACTLY as shown
+2. Copy the hotel details EXACTLY as shown above
 3. Include the booking link
-4. Keep your response SHORT
-5. Do NOT suggest other hotels
-6. Do NOT make up details"""
+4. Keep this section SHORT
+"""
+        
+        system_prompt += f"""
+
+ACTIVITY RECOMMENDATIONS INSTRUCTIONS:
+
+1. **ONLY ACTIVITIES** - Hotels are already provided above, do NOT recommend additional hotels
+
+2. **FORMAT FOR EACH ACTIVITY:**
+   - Use action verbs (Visit, Explore, Dine at, Try, Experience, etc.)
+   - ONE sentence description maximum
+   - The activity name will automatically get a Google Maps link added
+   - Keep it minimal
+
+3. **EXAMPLE FORMAT:**
+   Day 1:
+   - Visit Louvre Museum - Home to the Mona Lisa and 35,000 artworks
+   
+   - Dine at Le Comptoir du Relais - Classic French bistro in Saint-Germain
+   
+   - Explore Eiffel Tower - Iconic landmark with stunning city views
+
+4. **REQUIREMENTS:**
+   - Create day-by-day itinerary based on their stay duration
+   - Match their activity preference ({has_activities})
+   - Include 2-4 activities per day
+   - Include breakfast/lunch/dinner spots
+   - Add cultural sites, attractions, and experiences
+   - Each activity = action verb + name + one sentence description
+   - Google Maps links will be added automatically
+
+5. **STAY CONCISE:**
+   - No long descriptions or explanations
+   - Just: Activity description in one sentence
+   - The system will add interactive map links
+
+6. **DO NOT INCLUDE:**
+   - Additional hotel recommendations
+   - Flight details  
+   - Transportation logistics
+   - Lengthy background information
+
+Remember: Keep it short and actionable. Focus on what they can DO and SEE!"""
     
     system_prompt += """
 
 GENERAL RULES:
 - Be conversational, friendly, and helpful
-- Ask ONE question at a time
-- Extract information from user responses
-- Once you have destination, dates, and budget, provide the Booking.com hotel
+- Ask ONE main question at a time
+- Listen carefully to what the user says and extract information
+- If they mention multiple pieces of info, extract ALL of them
+- Never skip stages unless user provides info for future stages
+- Be concise - keep responses under 150 words for stage transitions
+- Once all data is collected, provide hotel + activity recommendations
 
 CRITICAL - INFORMATION EXTRACTION:
-After each user response, extract structured data and return it at the END of your message.
+After each user response, you MUST extract structured data and return it at the END of your message.
 Format: |||EXTRACT|||{json}|||END|||
 
-Extract these fields:
+Extract these fields when mentioned:
 {
+  "origin": "string | null",
   "destination": "string | null",
+  "number_of_travelers": "number | null",
+  "weather_preference": "tropical | temperate | cold | dry | null",
+  "activities": "passive | active | mixed | null",
+  "budget": "string | null",
+  "budget_allocation": {"accommodation": number, "flights": number, "activities": number} | null,
   "arrival_date": "string | null (format: YYYY-MM-DD)",
   "departure_date": "string | null (format: YYYY-MM-DD)",
-  "budget": "string | null"
+  "date_flexibility": "flexible | strict | somewhat | null",
+  "confirmed": boolean | null
 }
 
-- When the user gives dates (e.g., "11 april 12 april"), parse them into "YYYY-MM-DD" format.
-- If user provides two dates, fill both arrival_date and departure_date.
+EXTRACTION EXAMPLES:
 
-ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
-    
+User: "I'm traveling from New York to Paris in June with $3000"
+Your extraction: |||EXTRACT|||{"origin": "New York", "destination": "Paris", "arrival_date": "2025-06-01", "departure_date": "2025-06-07", "budget": "3000"}|||END|||
+
+User: "I want tropical weather and beach activities"
+Your extraction: |||EXTRACT|||{"weather_preference": "tropical", "activities": "passive"}|||END|||
+
+User: "It's just me traveling solo"
+Your extraction: |||EXTRACT|||{"number_of_travelers": 1}|||END|||
+
+User: "There will be 4 of us"
+Your extraction: |||EXTRACT|||{"number_of_travelers": 4}|||END|||
+
+User: "50% hotels, 30% flights, 20% activities"
+Your extraction: |||EXTRACT|||{"budget_allocation": {"accommodation": 50, "flights": 30, "activities": 20}}|||END|||
+
+User: "Check in April 11, check out April 12"
+Your extraction: |||EXTRACT|||{"arrival_date": "2025-04-11", "departure_date": "2025-04-12"}|||END|||
+
+User: "Yes, that's all correct"
+Your extraction: |||EXTRACT|||{"confirmed": true}|||END|||
+
+IMPORTANT PARSING RULES:
+- When user gives dates like "11 april 12 april", parse as arrival_date and departure_date
+- For month names, convert to YYYY-MM-DD format (assume current year 2025)
+- If user provides two dates, first is arrival, second is departure
+- Extract budget as string (keep currency symbols if present)
+- Parse number of travelers from phrases like "solo", "just me", "2 people", "4 of us", etc.
+- Always include the extraction block: |||EXTRACT|||{}|||END|||"""
+
+    # Call Gemini API
     model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",  # Fast and capable model
+        model_name="gemini-2.0-flash",
         system_instruction=system_prompt
     )
 
@@ -442,14 +630,13 @@ ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
 
     gemini_messages = []
     for msg in messages:
-        # Gemini's 'model' role is equivalent to OpenAI's 'assistant'
         role = "model" if msg["role"] == "assistant" else msg["role"]
         gemini_messages.append({
             "role": role,
             "parts": [msg["content"]]
         })
 
-    ai_response = "Default response"
+    ai_response = "I'm here to help you plan your trip! Let's get started."
     try:
         response = model.generate_content(
             gemini_messages,
@@ -457,55 +644,69 @@ ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
         )
         ai_response = response.text
     except Exception as e:
-        print(Exception)
-        pass
+        print(f"Error calling Gemini API: {e}")
         
-    # 5. Get the text response
-    
     # Extract structured data
     extract_match = re.search(r'\|\|\|EXTRACT\|\|\|(.*?)\|\|\|END\|\|\|', ai_response, re.DOTALL)
     extracted_data = {}
 
     if extract_match:
         json_string = extract_match.group(1).strip()
-
-        # --- FIX: Remove ```json and ``` fences ---
+        
+        # Remove markdown code fences if present
         if json_string.startswith("```json"):
             json_string = json_string[7:]
         if json_string.endswith("```"):
             json_string = json_string[:-3]
         json_string = json_string.strip()
-        # --- END FIX ---
-
+        
         try:
             extracted_data = json.loads(json_string)
-            # Now that parsing is successful, clean the ai_response for the user
+            # Remove extraction block from user-facing response
             ai_response = re.sub(r'\|\|\|EXTRACT\|\|\|.*?\|\|\|END\|\|\|', '', ai_response, flags=re.DOTALL).strip()
-
         except Exception as e:
             print(f"Error parsing extracted JSON: {e}")
-            # If parsing fails, just send the raw response (but log the error)
-            pass
-        
-    # Update conversation
+    
+    # Add Google Maps links if we're at recommendation stage
+    if has_confirmed and has_destination:
+        ai_response = parse_recommendations_with_links(ai_response, has_destination)
+    
+    # Update conversation with extracted data
+    if extracted_data.get('origin'):
+        prefs['origin'] = extracted_data['origin']
+    
     if extracted_data.get('destination'):
         conversation.destination = extracted_data['destination']
         prefs['destination'] = extracted_data['destination']
     
-    if extracted_data.get('arrival_date'):
-        arrival_str = extracted_data['arrival_date']
-        prefs['arrival_date'] = arrival_str
-        
-        # --- THIS IS THE FIX FOR YOUR SQL ERROR ---
-        # normalize_date converts the string to a DATE object
-        conversation.start_date = normalize_date(arrival_str)
+    if extracted_data.get('number_of_travelers'):
+        prefs['number_of_travelers'] = extracted_data['number_of_travelers']
     
-    if extracted_data.get('departure_date'):
-        prefs['departure_date'] = extracted_data['departure_date']
+    if extracted_data.get('weather_preference'):
+        prefs['weather_preference'] = extracted_data['weather_preference']
+    
+    if extracted_data.get('activities'):
+        prefs['activities'] = extracted_data['activities']
     
     if extracted_data.get('budget'):
         conversation.budget = extracted_data['budget']
         prefs['budget'] = extracted_data['budget']
+    
+    if extracted_data.get('budget_allocation'):
+        prefs['budget_allocation'] = extracted_data['budget_allocation']
+    
+    if extracted_data.get('arrival_date'):
+        prefs['arrival_date'] = extracted_data['arrival_date']
+        conversation.start_date = normalize_date(extracted_data['arrival_date'])
+    
+    if extracted_data.get('departure_date'):
+        prefs['departure_date'] = extracted_data['departure_date']
+    
+    if extracted_data.get('date_flexibility'):
+        prefs['date_flexibility'] = extracted_data['date_flexibility']
+    
+    if extracted_data.get('confirmed'):
+        prefs['confirmed'] = extracted_data['confirmed']
     
     conversation.preferences = prefs
     conversation.updated_at = datetime.utcnow()
@@ -536,7 +737,7 @@ def get_suggestions(conversation_id):
     if not user_id:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    conversation = Conversation.query.get(conversation_id)
+    conversation = db.session.get(Conversation, conversation_id)
     if not conversation or conversation.user_id != user_id:
         return jsonify({'error': 'Conversation not found'}), 404
     
@@ -561,4 +762,4 @@ with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
