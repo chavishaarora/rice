@@ -104,7 +104,8 @@ def parse_recommendations_with_links(response: str, destination: str) -> str:
     
     return enhanced_response
 
-def search_hotels(city: str, arrival: str, departure: str, price_max: int):
+
+def search_hotels(city: str, arrival: str, departure: str, price_max: int, **kwargs):
     """Search for hotels using Booking.com API"""
     print(f"Starting hotel search for {city}...")
     try:
@@ -115,12 +116,16 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
             print("Booking API credentials not set")
             return None
         
+        # Start with base parameters
         params = {
             'CITY_QUERY': city,
             'ARRIVAL_DATE': arrival,
             'DEPARTURE_DATE': departure,
             'PRICE_MAX': price_max
         }
+        
+        # This will add 'ADULTS', 'PRICE_MIN', etc., if they exist in kwargs
+        params.update(kwargs)
 
         api_client = BookingComAPI(API_HOST, API_KEY, **params)
         
@@ -139,6 +144,8 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
         first_hotel = hotel_result['data']['hotels'][0]
         hotel_id = first_hotel['hotel_id']
         
+        fallback_url = first_hotel['property'].get('url', f"https://www.booking.com/searchresults.html?ss={city}")
+        
         result_data = {
             'destination': api_client.DESTINATION,
             'hotel_name': first_hotel.get('property', {}).get('name', 'N/A'),
@@ -147,7 +154,7 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
             'hotel_photo_url': first_hotel.get('property', {}).get('photoUrls', []),
             'rating': first_hotel.get('property', {}).get('reviewScore', 0),
             'room_photo_url': 'N/A',
-            'booking_url': f"https://www.booking.com/"
+            'booking_url': fallback_url # Use the good fallback URL
         }
         
         # Extract price
@@ -155,27 +162,32 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
         result_data['price'] = price_breakdown.get('value', 0)
         result_data['currency'] = price_breakdown.get('currency', 'N/A')
         
-        # Get room details
+        # Get room details to find a *better* URL and room photo
         details_result = api_client.get_hotel_details(hotel_id)
-        print(details_result.keys())
         if details_result and details_result.get('data'):
+            
+            specific_url = details_result['data'].get('url')
+            if specific_url:
+                result_data['booking_url'] = specific_url # Overwrite fallback
+            
             rooms = details_result['data'].get('rooms', {})
             if rooms:
-                first_room_id = list(rooms.keys())[0]
-                first_room = rooms[first_room_id]
-                photos = first_room.get('photos', [])
-                result_data['booking_url'] = details_result['data'].get('url')
-                for photo in photos:
-                    if photo.get('url_max1280'):
-                        result_data['room_photo_url'] = photo['url_max1280']
-                        break
+                try:
+                    first_room_id = list(rooms.keys())[0]
+                    first_room = rooms[first_room_id]
+                    photos = first_room.get('photos', [])
+                    for photo in photos:
+                        if photo.get('url_max1280'):
+                            result_data['room_photo_url'] = photo['url_max1280']
+                            break
+                except Exception as e:
+                    print(f"Error parsing room photos: {e}")
         
         return result_data
         
     except Exception as e:
         print(f"Error in search_hotels: {e}")
         return None
-
 # Routes
 
 @app.route('/api/auth/signup', methods=['POST'])
@@ -424,8 +436,17 @@ def travel_chat():
 
         arrival_date_obj = normalize_date(str(has_arrival_date))
         departure_date_obj = normalize_date(str(has_departure_date))
-        
-        hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
+
+        api_params = {
+            'PRICE_MIN': 0 # Default from your client
+        }
+        if has_travelers:
+            try:
+                api_params['ADULTS'] = int(has_travelers)
+            except ValueError:
+                print(f"Could not parse has_travelers: {has_travelers}")
+
+        hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max, **api_params)
         print(hotel_data)
         if hotel_data:
             booking_url = hotel_data['booking_url']#f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
