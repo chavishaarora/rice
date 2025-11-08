@@ -22,7 +22,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_TYPE'] = 'filesystem'
 
 # Initialize extensions
-CORS(app, supports_credentials=True)
+CORS(app, 
+     supports_credentials=True,
+     origins=["http://localhost:8080"],  # Add your frontend URLs
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 Session(app)
 db.init_app(app)
 
