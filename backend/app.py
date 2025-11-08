@@ -146,7 +146,8 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
             'booking_hotel_id': hotel_id,
             'hotel_photo_url': first_hotel.get('property', {}).get('photoUrls', []),
             'rating': first_hotel.get('property', {}).get('reviewScore', 0),
-            'room_photo_url': 'N/A'
+            'room_photo_url': 'N/A',
+            'booking_url': f"https://www.booking.com/"
         }
         
         # Extract price
@@ -156,12 +157,14 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
         
         # Get room details
         details_result = api_client.get_hotel_details(hotel_id)
+        print(details_result.keys())
         if details_result and details_result.get('data'):
             rooms = details_result['data'].get('rooms', {})
             if rooms:
                 first_room_id = list(rooms.keys())[0]
                 first_room = rooms[first_room_id]
                 photos = first_room.get('photos', [])
+                result_data['booking_url'] = details_result['data'].get('url')
                 for photo in photos:
                     if photo.get('url_max1280'):
                         result_data['room_photo_url'] = photo['url_max1280']
@@ -425,7 +428,7 @@ def travel_chat():
         hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
         print(hotel_data)
         if hotel_data:
-            booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
+            booking_url = hotel_data['booking_url']#f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
 
             # Pick the best available image
             image_url = hotel_data.get('room_photo_url', 'N/A')

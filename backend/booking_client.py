@@ -153,7 +153,7 @@ class BookingComAPI:
         )
 
         hotel_data_dict = self._make_api_call("GET", hotel_endpoint)
-        
+        print(hotel_data_dict)
         if hotel_data_dict and hotel_data_dict.get('data'):
             hotel_results = hotel_data_dict['data']
             print(f"✅ Hotel Search Results Retrieved: {len(hotel_results.get('hotels', []))} hotels on page {self.PAGE_NUMBER}.")
@@ -178,7 +178,8 @@ class BookingComAPI:
             f"currency_code={self.CURRENCY_CODE}"
         )
         details_data_dict = self._make_api_call("GET", details_endpoint)
-        
+        print(details_data_dict)
+
         if details_data_dict and details_data_dict.get('data'):
             print(f"✅ Hotel Details Retrieved for hotel ID: **{hotel_id}**")
             return details_data_dict
@@ -201,6 +202,7 @@ def main() -> Optional[Dict[str, Any]]:
         "booking_hotel_id": 0,
         "hotel_photo_url": [],
         "room_photo_url": "N/A",
+        "booking_url": "https://booking.com"
     }
 
 
@@ -213,7 +215,7 @@ def main() -> Optional[Dict[str, Any]]:
     result_data["destionation"] = api_client.DESTINATION
 
     # 2. Get Filters (Optional, for count)
-    api_client.get_filters()
+    #api_client.get_filters()
 
     # 3. Search Hotels
     hotel_search_result = api_client.search_hotels()
@@ -248,7 +250,7 @@ def main() -> Optional[Dict[str, Any]]:
         hotel_data = details_result['data']
         rooms = hotel_data.get('rooms', {})
         photo_urls_rooms: List[str] = []
-        
+        result_data["booking_url"] = hotel_data.get("url")
         # Extract high-res room photos
         if rooms:
             try:
