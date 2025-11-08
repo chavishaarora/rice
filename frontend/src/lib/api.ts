@@ -3,21 +3,43 @@ const API_BASE_URL = 'http://localhost:5000/api';
 
 class ApiClient {
   private async request(endpoint: string, options: RequestInit = {}) {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      credentials: 'include', // Important for session cookies
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    try {
+      console.log(`Making ${options.method || 'GET'} request to: ${API_BASE_URL}${endpoint}`);
+      
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include', // Important for session cookies
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || 'Request failed');
+      console.log(`Response status: ${response.status}`);
+
+      // Try to parse JSON response
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        console.error('Failed to parse JSON response:', e);
+        throw new Error('Invalid response from server');
+      }
+
+      if (!response.ok) {
+        const error = data?.error || `Request failed with status ${response.status}`;
+        console.error('API Error:', error);
+        throw new Error(error);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('API request failed:', error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network request failed');
     }
-
-    return response.json();
   }
 
   // Auth endpoints
@@ -73,6 +95,11 @@ class ApiClient {
 
   async getSuggestions(conversationId: string) {
     return this.request(`/suggestions/${conversationId}`);
+  }
+
+  // Health check endpoint
+  async healthCheck() {
+    return this.request('/health');
   }
 }
 
