@@ -31,7 +31,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=GOOGLE_API_KEY)
 
 
-client = OpenAI(api_key="sk-BpS2OBDVe9rAf1_EWWNS5Q")
+#client = OpenAI(api_key="")
 # Initialize extensions
 CORS(app, 
      supports_credentials=True,
@@ -45,8 +45,10 @@ db.init_app(app)
 def create_google_maps_url(place_name: str, destination: str) -> str:
     """Create Google Maps search URL"""
     query = f"{place_name} {destination}"
-    encoded_query = query.replace(' ', '+')
-    return f"https://www.google.com/maps/search/{encoded_query}"
+    # Use urllib.parse.quote_plus for correct URL encoding
+    encoded_query = urllib.parse.quote_plus(query) 
+    # This is the correct, modern URL format for a map search
+    return f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
 
 def get_month_number(month_name: str) -> str:
     """Convert month name to number"""
@@ -113,12 +115,14 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
             print("Booking API credentials not set")
             return None
         
-        api_client = BookingComAPI(API_HOST, API_KEY, {
+        params = {
             'CITY_QUERY': city,
             'ARRIVAL_DATE': arrival,
             'DEPARTURE_DATE': departure,
             'PRICE_MAX': price_max
-        })
+        }
+
+        api_client = BookingComAPI(API_HOST, API_KEY, **params)
         
         # Search destination
         if not api_client.search_destination():
@@ -137,7 +141,7 @@ def search_hotels(city: str, arrival: str, departure: str, price_max: int):
         
         # Extract hotel data
         result_data = {
-            'destination': api_client.get_destination_name(),
+            'destination': api_client.DESTINATION,
             'hotel_name': first_hotel.get('property', {}).get('name', 'N/A'),
             'hotel_description': first_hotel.get('accessibilityLabel', 'N/A'),
             'booking_hotel_id': hotel_id,
@@ -311,6 +315,53 @@ def create_conversation():
         'status': conversation.status
     })
 
+@app.route('/api/debug/get-rome-hotel', methods=['GET'])
+def get_rome_hotel():
+    """
+    DEBUG ROUTE: Fetches a single static hotel for Rome to test the frontend.
+    """
+    print("--- DEBUG: /api/debug/get-rome-hotel route hit ---")
+    try:
+        # 1. Define static search parameters
+        city = "Rome"
+        # Set future dates to ensure API finds results
+        arrival_date_obj = datetime.now().date() + timedelta(days=60)
+        departure_date_obj = datetime.now().date() + timedelta(days=61)
+        arrival_str = arrival_date_obj.isoformat()
+        departure_str = departure_date_obj.isoformat()
+        budget = 1000
+
+        # 2. Call your existing search_hotels function
+        hotel_data = search_hotels(city, arrival_str, departure_str, budget)
+        
+        if not hotel_data:
+            return jsonify({'error': 'Failed to fetch hotel from Booking.com'}), 500
+
+        # 3. Format the data to match the frontend 'Suggestion' interface
+        booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_str}&checkout={departure_str}"
+        
+        # Pick the best available image
+        image_url = hotel_data.get('room_photo_url', 'N/A')
+        if image_url == 'N/A' and hotel_data.get('hotel_photo_url'):
+            image_url = hotel_data['hotel_photo_url'][0]
+
+        suggestion = {
+            'id': f"debug-{hotel_data['booking_hotel_id']}",
+            'type': 'hotel',
+            'title': hotel_data.get('hotel_name'),
+            'description': hotel_data.get('hotel_description'),
+            'price': hotel_data.get('price'),
+            'image_url': image_url,
+            'booking_url': booking_url,
+            'location': {'address': hotel_data.get('destination')}
+        }
+        
+        return jsonify(suggestion)
+
+    except Exception as e:
+        print(f"Error in /api/debug/get-rome-hotel: {e}")
+        return jsonify({'error': str(e)}), 500
+    
 @app.route('/api/travel-chat', methods=['POST'])
 def travel_chat():
     """Handle travel chat messages"""
