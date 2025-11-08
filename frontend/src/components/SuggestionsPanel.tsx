@@ -144,47 +144,46 @@ const SuggestionsPanel = () => {
   };
   */
   // --- END OF COMMENTED OUT LOGIC ---
-
-  // 2. --- NEW useEffect TO LOAD STATIC MOCK DATA ---
+  
   useEffect(() => {
-    console.log("DEBUG MODE: Loading static mock data...");
+    console.log("DEBUG MODE: Fetching static hotel from backend...");
 
-    // This is the data structure your 'index.ts' *should* create
-    const mockHotelSuggestion: Suggestion = {
-      id: "mock-hotel-123",
-      type: "hotel",
-      title: "The Grand Mock Hotel",
-      description:
-        "A beautiful, static hotel used for debugging the UI. Features include a non-functional booking link and a lovely placeholder image.",
-      price: 249.99,
-      rating: 4.7,
-      image_url: "https://placehold.co/600x400/EEE/31343C?text=Mock+Hotel+Image",
-      booking_url: "https://www.google.com/search?q=The+Grand+Mock+Hotel+Paris",
-      location: { address: "Paris, France" },
+    const fetchDebugHotel = async () => {
+      try {
+        // Call your new Flask debug route
+        const response = await fetch("http://localhost:5000/api/debug/get-rome-hotel");
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.statusText}`);
+        }
+
+        const realHotel: Suggestion = await response.json();
+        
+        console.log("DEBUG: Received real hotel data:", realHotel);
+
+        // Set the state with this real data
+        setSuggestions({
+          flights: [],
+          hotels: [realHotel], // Add the fetched hotel
+          attractions: [],
+          restaurants: [],
+        });
+
+        // Use the destination from the hotel data
+        setDestination(realHotel.location?.address || "Rome, Italy");
+
+      } catch (error) {
+        console.error("Failed to load debug hotel:", error);
+        // You could set a mock hotel here as a fallback if you want
+      } finally {
+        setLoading(false); // We're done loading
+      }
     };
 
-    const mockAttractionSuggestion: Suggestion = {
-      id: "mock-attraction-456",
-      type: "attraction",
-      title: "Mock de Triomphe",
-      description: "A stunning arch, rendered statically for your viewing pleasure. No tickets required.",
-      price: 15.00,
-      rating: 4.9,
-      image_url: "https://placehold.co/600x400/DDD/31343C?text=Mock+Attraction",
-      booking_url: "https://www.google.com/search?q=Arc+de+Triomphe+Paris",
-      location: { address: "Paris, France" },
-    };
+    fetchDebugHotel();
     
-    // Set the state with this mock data
-    setSuggestions({
-      flights: [],
-      hotels: [mockHotelSuggestion],
-      attractions: [mockAttractionSuggestion],
-      restaurants: [],
-    });
-
-    setDestination("Paris, France");
-    setLoading(false); // We're done "loading"
+    // We're not returning a cleanup function, and the empty array []
+    // ensures this runs only ONCE when the component mounts.
   }, []);
   // The empty array [] ensures this runs only ONCE when the component mounts
 
