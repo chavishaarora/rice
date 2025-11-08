@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_session import Session
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -12,7 +12,11 @@ from database import db, User, Conversation, Message, TravelSuggestion, Profile
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
 
-import google.generativeai as genai  # <-- ADD THIS
+
+import json
+import urllib.parse
+
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv(override=True)
@@ -62,20 +66,16 @@ def get_month_number(month_name: str) -> str:
     }
     return months.get(month_name.lower(), '01')
 
-def normalize_date(date_str: str) -> str:
-    """Normalize dates to YYYY-MM-DD format"""
+def normalize_date(date_str: str) -> date:
+    """Normalize dates to YYYY-MM-DD format and return date object"""
     try:
-        # If already in YYYY-MM-DD format
-        if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
-            return date_str
-        
-        # Try to parse and format
+        # Try to parse YYYY-MM-DD format
         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        return date_obj.strftime('%Y-%m-%d')
+        return date_obj.date()
     except:
         # Fallback to current date + 30 days
         now = datetime.now() + timedelta(days=30)
-        return now.strftime('%Y-%m-%d')
+        return now.date()
 
 def parse_recommendations_with_links(response: str, destination: str) -> str:
     """Add Google Maps links to activities in the response"""
@@ -330,7 +330,9 @@ def travel_chat():
     # Get conversation state
     prefs = conversation.preferences or {}
     has_destination = conversation.destination or prefs.get('destination')
-    has_dates = conversation.start_date or prefs.get('dates')
+    has_arrival_date = prefs.get('arrival_date')
+    has_departure_date = prefs.get('departure_date')
+    has_dates = has_arrival_date and has_departure_date # We need both
     has_budget = conversation.budget or prefs.get('budget')
     
     # Build system prompt
@@ -358,16 +360,19 @@ STAGE 3: GET BUDGET
 - Ask for their budget for accommodation
 - KEEP YOUR RESPONSE TO MAX 2 SENTENCES"""
     elif can_search_hotels:
+        arrival_date = prefs.get('arrival_date')
+        departure_date = prefs.get('departure_date')
         system_prompt += f"""
 STAGE 4: PROVIDE HOTEL RECOMMENDATIONS
 Current Trip Details:
 - Destination: {has_destination}
-- Dates: {has_dates}
+- Check-in: {arrival_date}
+- Check-out: {departure_date}
 - Budget: {has_budget}"""
         
         # Parse dates and search for hotels
-        arrival_date = normalize_date(str(has_dates))
-        departure_date = normalize_date(str(has_dates))
+        arrival_date_obj = normalize_date(str(has_dates))
+        departure_date_obj = normalize_date(str(has_dates))
         
         # Extract budget number
         budget_max = 1000
@@ -376,10 +381,10 @@ Current Trip Details:
             budget_max = int(budget_match.group(1))
         
         # Search hotels
-        hotel_data = search_hotels(has_destination, arrival_date, departure_date, budget_max)
+        hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
         
         if hotel_data:
-            booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date}&checkout={departure_date}"
+            booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
             system_prompt += f"""
 
 🏨 **REAL HOTEL FROM BOOKING.COM:**
@@ -415,9 +420,13 @@ Format: |||EXTRACT|||{json}|||END|||
 Extract these fields:
 {
   "destination": "string | null",
-  "dates": "string | null",
+  "arrival_date": "string | null (format: YYYY-MM-DD)",
+  "departure_date": "string | null (format: YYYY-MM-DD)",
   "budget": "string | null"
 }
+
+- When the user gives dates (e.g., "11 april 12 april"), parse them into "YYYY-MM-DD" format.
+- If user provides two dates, fill both arrival_date and departure_date.
 
 ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
     
@@ -440,34 +449,59 @@ ALWAYS include the extraction block: |||EXTRACT|||{}|||END|||"""
             "parts": [msg["content"]]
         })
 
-    response = model.generate_content(
-        gemini_messages,
-        generation_config=generation_config
-    )
-    
+    ai_response = "Default response"
+    try:
+        response = model.generate_content(
+            gemini_messages,
+            generation_config=generation_config
+        )
+        ai_response = response.text
+    except Exception as e:
+        print(Exception)
+        pass
+        
     # 5. Get the text response
-    ai_response = response.text
     
     # Extract structured data
     extract_match = re.search(r'\|\|\|EXTRACT\|\|\|(.*?)\|\|\|END\|\|\|', ai_response, re.DOTALL)
     extracted_data = {}
-    
+
     if extract_match:
+        json_string = extract_match.group(1).strip()
+
+        # --- FIX: Remove ```json and ``` fences ---
+        if json_string.startswith("```json"):
+            json_string = json_string[7:]
+        if json_string.endswith("```"):
+            json_string = json_string[:-3]
+        json_string = json_string.strip()
+        # --- END FIX ---
+
         try:
-            import json
-            extracted_data = json.loads(extract_match.group(1).strip())
+            extracted_data = json.loads(json_string)
+            # Now that parsing is successful, clean the ai_response for the user
             ai_response = re.sub(r'\|\|\|EXTRACT\|\|\|.*?\|\|\|END\|\|\|', '', ai_response, flags=re.DOTALL).strip()
-        except:
+
+        except Exception as e:
+            print(f"Error parsing extracted JSON: {e}")
+            # If parsing fails, just send the raw response (but log the error)
             pass
-    
+        
     # Update conversation
     if extracted_data.get('destination'):
         conversation.destination = extracted_data['destination']
         prefs['destination'] = extracted_data['destination']
     
-    if extracted_data.get('dates'):
-        prefs['dates'] = extracted_data['dates']
-        conversation.start_date = normalize_date(extracted_data['dates'])
+    if extracted_data.get('arrival_date'):
+        arrival_str = extracted_data['arrival_date']
+        prefs['arrival_date'] = arrival_str
+        
+        # --- THIS IS THE FIX FOR YOUR SQL ERROR ---
+        # normalize_date converts the string to a DATE object
+        conversation.start_date = normalize_date(arrival_str)
+    
+    if extracted_data.get('departure_date'):
+        prefs['departure_date'] = extracted_data['departure_date']
     
     if extracted_data.get('budget'):
         conversation.budget = extracted_data['budget']
