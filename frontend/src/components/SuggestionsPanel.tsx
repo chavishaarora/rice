@@ -33,9 +33,10 @@ interface GroupedSuggestions {
 
 interface SuggestionsPanelProps {
   conversationId: string | null;
+  refreshKey: number;
 }
 
-const SuggestionsPanel = ({ conversationId }: SuggestionsPanelProps) => {
+const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) => {
   const [suggestions, setSuggestions] = useState<GroupedSuggestions>({
     flights: [],
     hotels: [],
@@ -45,7 +46,6 @@ const SuggestionsPanel = ({ conversationId }: SuggestionsPanelProps) => {
   const [loading, setLoading] = useState(true);
   const [destination, setDestination] = useState<string>("");
 
-  // --- useEffect (no changes) ---
   useEffect(() => {
     if (!conversationId) {
       setLoading(false);
@@ -58,7 +58,7 @@ const SuggestionsPanel = ({ conversationId }: SuggestionsPanelProps) => {
     return () => {
       clearInterval(interval);
     };
-  }, [conversationId]);
+  }, [conversationId, refreshKey]);
 
   // --- loadSuggestions (Corrected) ---
   const loadSuggestions = async () => {
@@ -66,7 +66,11 @@ const SuggestionsPanel = ({ conversationId }: SuggestionsPanelProps) => {
 
     try {
       const response = await fetch(
-        `http://localhost:5001/api/suggestions/${conversationId}`
+        `http://localhost:5001/api/suggestions/${conversationId}`,
+        {
+          method: 'GET',
+          credentials: 'include'
+        }
       );
 
       if (!response.ok) {
@@ -76,7 +80,6 @@ const SuggestionsPanel = ({ conversationId }: SuggestionsPanelProps) => {
       const data = await response.json();
       const loadedSuggestions = data.suggestions as Suggestion[];
 
-      // --- START: This is the corrected grouping logic ---
       const grouped: GroupedSuggestions = {
         flights: [],
         hotels: [],

@@ -410,14 +410,15 @@ def travel_chat():
         Always stay concise, factual, and focused.
 
         CONVERSATION STAGE RULES:"""
+    print(has_destination, has_dates)
     if has_destination and has_dates:
-        
+        print("Give me hotel? ")
         # Extract budget number for hotel search
         budget_max = 1000
         budget_match = re.search(r'(\d+)', str(has_budget))
         if budget_match:
             budget_max = int(budget_match.group(1))
-            
+
         arrival_date_obj = normalize_date(str(has_arrival_date))
         departure_date_obj = normalize_date(str(has_departure_date))
         
@@ -575,38 +576,38 @@ Current Trip Details:
 - Flexibility: {has_flexibility}
 """
         
-        # Search hotels
-        hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
-        print(hotel_data)
-        if hotel_data:
-            booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
+        # # Search hotels
+        # hotel_data = search_hotels(has_destination, arrival_date_obj.isoformat(), departure_date_obj.isoformat(), budget_max)
+        # print(hotel_data)
+        # if hotel_data:
+        #     booking_url = f"https://www.booking.com/hotel/xx/{hotel_data['booking_hotel_id']}.html?checkin={arrival_date_obj.isoformat()}&checkout={departure_date_obj.isoformat()}"
 
-            # Pick the best available image
-            image_url = hotel_data.get('room_photo_url', 'N/A')
-            if image_url == 'N/A':
-                hotel_photos = hotel_data.get('hotel_photo_url', [])
-                if hotel_photos and len(hotel_photos) > 0:
-                    image_url = hotel_photos[0]
+        #     # Pick the best available image
+        #     image_url = hotel_data.get('room_photo_url', 'N/A')
+        #     if image_url == 'N/A':
+        #         hotel_photos = hotel_data.get('hotel_photo_url', [])
+        #         if hotel_photos and len(hotel_photos) > 0:
+        #             image_url = hotel_photos[0]
             
-            rating_10_point = hotel_data.get('rating', 0)
-            rating_5_point = rating_10_point / 2.0 if rating_10_point > 0 else 0
+        #     rating_10_point = hotel_data.get('rating', 0)
+        #     rating_5_point = rating_10_point / 2.0 if rating_10_point > 0 else 0
 
-            # Create and save the new suggestion
-            new_suggestion = TravelSuggestion(
-                conversation_id=conversation_id,
-                type='hotel',
-                title=hotel_data.get('hotel_name'),
-                description=hotel_data.get('hotel_description'),
-                price=hotel_data.get('price'),
-                rating=rating_5_point,
-                image_url=image_url,
-                booking_url=booking_url,
-                location={'address': hotel_data.get('destination')}
-            )
-            db.session.add(new_suggestion)
+        #     # Create and save the new suggestion
+        #     new_suggestion = TravelSuggestion(
+        #         conversation_id=conversation_id,
+        #         type='hotel',
+        #         title=hotel_data.get('hotel_name'),
+        #         description=hotel_data.get('hotel_description'),
+        #         price=hotel_data.get('price'),
+        #         rating=rating_5_point,
+        #         image_url=image_url,
+        #         booking_url=booking_url,
+        #         location={'address': hotel_data.get('destination')}
+        #     )
+        #     db.session.add(new_suggestion)
 
             # The system prompt logic stays the same
-            system_prompt += f"""
+        system_prompt += f"""
 
 🏨 **REAL HOTEL FROM BOOKING.COM:**
 

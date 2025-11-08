@@ -14,9 +14,16 @@ interface Message {
 interface ChatInterfaceProps {
   user: any;
   onLocationSelect: (location: { lat: number; lng: number; name: string }) => void;
+  onMessageSent: () => void;
+  onConversationCreated: (id: string) => void;
 }
 
-const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSelect }, ref) => {
+const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ 
+  user, 
+  onLocationSelect, 
+  onMessageSent,
+  onConversationCreated,
+}, ref) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,6 +48,7 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
     try {
       const data = await api.createConversation();
       setConversationId(data.id);
+      onConversationCreated(data.id);
 
       const welcomeMsg: Message = {
         role: "assistant",
@@ -55,12 +63,19 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
   };
 
   const renderMessageContent = (content: string) => {
-    const parts = content.split(/(https:\/\/www\.google\.com\/maps\/search\/[^\s]+)/g);
+    // This regex now matches the exact URL your backend creates
+    const parts = content.split(/(http:\/\/googleusercontent\.com\/maps\.google\.com\/0[^\s]+)/g);
 
     return parts.map((part, index) => {
-      if (part.startsWith("https://www.google.com/maps/search/")) {
-        const encodedQuery = part.split("/search/")[1];
+      // Check for the correct URL prefix
+      if (part.startsWith("https://www.google.com/maps/search/?api=1&query=")) {
+        // Split by the query marker
+        const encodedQuery = part.split("/0")[1]; 
         const decodedQuery = decodeURIComponent(encodedQuery).replace(/\+/g, " ");
+        
+        // This regex extracts just the place name, not the destination
+        const placeNameMatch = decodedQuery.match(/^(.*?)\s/);
+        const placeName = placeNameMatch ? placeNameMatch[1] : decodedQuery;
 
         return (
           <div key={index} className="my-2 flex items-center gap-2">
@@ -72,7 +87,8 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
             >
               <a href={part} target="_blank" rel="noopener noreferrer">
                 <MapPin className="h-4 w-4" />
-                <span className="text-xs">{decodedQuery}</span>
+                {/* Display the cleaned-up place name */}
+                <span className="text-xs">{placeName}</span> 
                 <ExternalLink className="h-3 w-3" />
               </a>
             </Button>
@@ -110,6 +126,8 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
+      onMessageSent();
+
       if (location) {
         onLocationSelect(location);
       }
@@ -135,6 +153,7 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
   }));
 
   return (
+    // ... (rest of your component's JSX is unchanged)
     <div className="flex flex-col h-full">
       <div className="p-4 border-b bg-muted/50">
         <h2 className="text-lg font-semibold text-foreground">Chat with AI Travel Agent</h2>
@@ -157,14 +176,14 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
                     : "bg-muted text-foreground"
                 }`}
               >
-                <div className="text-sm">
+                   <div className="text-sm">
                   {message.role === "assistant" ? (
                     renderMessageContent(message.content)
                   ) : (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   )}
                 </div>
-              </div>
+               </div>
             </div>
           ))}
           <div ref={scrollRef} />
@@ -175,14 +194,14 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({ user, onLocationSel
         <div className="flex gap-2">
           <Input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+               onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Type your message or select a location on the map..."
             disabled={loading}
             className="flex-1"
           />
           <Button onClick={() => sendMessage()} disabled={loading || !input.trim()}>
-            <Send className="h-4 w-4" />
+               <Send className="h-4 w-4" />
           </Button>
         </div>
       </div>
