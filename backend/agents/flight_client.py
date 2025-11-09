@@ -27,7 +27,7 @@ CURRENCY_CODE = "EUR"                # Currency code for prices
 class BookingComFlightsAPI:
     """
     A class to interact with the Booking.com RapidAPI Flights endpoint,
-    handling destination search and flight options retrieval.
+    handling destination search and flight options retrieval with fallback to nearest airports.
     """
     
     def __init__(self, api_host: str, api_key: str):
@@ -66,45 +66,161 @@ class BookingComFlightsAPI:
             print(f"❌ An error occurred during API call: {e}")
             return None
 
-    def search_airport(self, query: str, is_origin: bool) -> bool:
-        """Finds the airport ID based on the city/airport query."""
-        search_type = "Origin" if is_origin else "Destination"
+    def _extract_country_or_region(self, query: str) -> Optional[str]:
+        """
+        Extracts country or region from a query string.
+        For example: 'Cabanes' -> 'Spain', 'Valencia' -> 'Valencia'
+        This is a simple heuristic - you can make it more sophisticated.
+        """
+        # Common patterns to try
+        country_patterns = [
+            query,  # Try the query itself first
+            # You could add common city -> country mappings here
+        ]
+        return None
 
+    def search_airport(self, query: str, is_origin: bool, max_retries: int = 5) -> bool:
+        """
+        Finds the airport ID based on the city/airport query.
+        If no airport is found, tries broader searches in the region.
+        
+        Args:
+            query: The city/location to search for
+            is_origin: Whether this is the origin or destination
+            max_retries: Maximum number of retry attempts with broader searches
+        
+        Returns:
+            bool: True if an airport was found, False otherwise
+        """
+        search_type = "Origin" if is_origin else "Destination"
+        
+        # Try 1: Direct search with the exact query
+        print(f"\n🔍 Attempting {search_type} search for: '{query}'")
+        if self._try_airport_search(query, is_origin, search_type):
+            return True
+        
+        # Try 2: If the query has multiple words, try the last word (often the country)
+        query_parts = query.split(',')
+        if len(query_parts) > 1:
+            # Try searching for each part, starting from the end (most general)
+            for i in range(len(query_parts) - 1, -1, -1):
+                broader_query = query_parts[i].strip()
+                print(f"\n🔍 Trying broader search with: '{broader_query}'")
+                if self._try_airport_search(broader_query, is_origin, search_type):
+                    return True
+        
+        # Try 3: Common regional capitals/major cities based on the query
+        fallback_searches = self._get_fallback_cities(query)
+        for fallback_city in fallback_searches:
+            print(f"\n🔍 Trying fallback city: '{fallback_city}'")
+            if self._try_airport_search(fallback_city, is_origin, search_type):
+                return True
+        
+        print(f"\n❌ Could not find any airport for {search_type} after {max_retries} attempts")
+        return False
+
+    def _try_airport_search(self, query: str, is_origin: bool, search_type: str) -> bool:
+        """
+        Attempts a single airport search with the given query.
+        
+        Returns:
+            bool: True if an airport was found, False otherwise
+        """
         params = {'query': query}
         encoded_params = urlencode(params)
-        # The API endpoint for destination search
         airport_endpoint = f"/api/v1/flights/searchDestination?{encoded_params}"
         
         airport_data_dict = self._make_api_call("GET", airport_endpoint)
+        
+        # Retry the same query a few times in case of transient failures
         idx = 0
         while not airport_data_dict.get('data') and idx < 3:
-            idx+=1
-            airport_data_dict = self._make_api_call("GET", airport_endpoint) 
+            idx += 1
+            print(f"   ⏳ Retry {idx}/3 for query: '{query}'")
+            airport_data_dict = self._make_api_call("GET", airport_endpoint)
 
         if airport_data_dict and airport_data_dict.get('data'):
             airport_results = airport_data_dict['data']
             
-            # We want the first result of type 'AIRPORT'
-            first_airport_result = next((item for item in airport_results if item.get('type') == 'AIRPORT'), None)
+            # Try to find an AIRPORT type first
+            airport_result = next((item for item in airport_results if item.get('type') == 'AIRPORT'), None)
             
-            if first_airport_result:
-                airport_id = first_airport_result.get('id')
-                airport_name = first_airport_result.get('name')
+            # If no AIRPORT, try CITY (some cities can be used as flight destinations)
+            if not airport_result:
+                airport_result = next((item for item in airport_results if item.get('type') == 'CITY'), None)
+            
+            if airport_result:
+                airport_id = airport_result.get('id')
+                airport_name = airport_result.get('name')
+                airport_type = airport_result.get('type')
                 
                 if is_origin:
                     self.ORIGIN_ID = airport_id
                 else:
                     self.DESTINATION_ID = airport_id
                 
-                print(f"✅ {search_type} Airport Search Success: Using **{airport_name}**")
-                print(f"   -> ID: {airport_id}")
+                print(f"✅ {search_type} Search Success: Using **{airport_name}** ({airport_type})")
+                print(f"   -> ID: {airport_id}")
                 return True
             else:
-                print(f"❌ {search_type} Airport Search Failed: No AIRPORT results found for '{query}'.")
+                print(f"   ⚠️ No usable results (AIRPORT or CITY) found for '{query}'")
         else:
-            print(f"❌ {search_type} Airport Search Failed: API error or empty response for '{query}'.")
+            print(f"   ⚠️ No data returned for query: '{query}'")
         
         return False
+
+    def _get_fallback_cities(self, original_query: str) -> List[str]:
+        """
+        Returns a list of fallback cities to try based on the original query.
+        This is a heuristic approach - you can expand this dictionary.
+        
+        Args:
+            original_query: The original search query that failed
+            
+        Returns:
+            List of alternative city names to try
+        """
+        # Convert query to lowercase for matching
+        query_lower = original_query.lower()
+        
+        # Dictionary of common small cities/towns and their nearest major airports
+        fallback_mapping = {
+            # Spain
+            'cabanes': ['Valencia', 'Castellon', 'Barcelona', 'Alicante', 'Spain'],
+            'castellon': ['Valencia', 'Barcelona', 'Alicante', 'Spain'],
+            'benicassim': ['Valencia', 'Castellon', 'Barcelona', 'Spain'],
+            
+            # France
+            'nice suburbs': ['Nice', 'France'],
+            'cannes': ['Nice', 'Marseille', 'France'],
+            
+            # Italy
+            'tuscany': ['Florence', 'Pisa', 'Rome', 'Italy'],
+            'cinque terre': ['Genoa', 'Pisa', 'Milan', 'Italy'],
+            
+            # Add more mappings as needed
+        }
+        
+        # Check if the query matches any known small cities
+        for small_city, major_cities in fallback_mapping.items():
+            if small_city in query_lower:
+                return major_cities
+        
+        # If no specific mapping found, try some generic fallbacks
+        # Based on common patterns (e.g., if query ends with country name)
+        generic_fallbacks = []
+        
+        # If the query contains 'spain', try major Spanish cities
+        if 'spain' in query_lower or 'españa' in query_lower:
+            generic_fallbacks = ['Valencia', 'Barcelona', 'Madrid', 'Alicante', 'Spain']
+        elif 'france' in query_lower:
+            generic_fallbacks = ['Paris', 'Nice', 'Lyon', 'Marseille', 'France']
+        elif 'italy' in query_lower:
+            generic_fallbacks = ['Rome', 'Milan', 'Venice', 'Florence', 'Italy']
+        elif 'poland' in query_lower:
+            generic_fallbacks = ['Warsaw', 'Krakow', 'Gdansk', 'Poland']
+        
+        return generic_fallbacks
 
     def search_flights(self, **kwargs) -> Optional[Dict[str, Any]]:
         """Searches for flight options based on configured parameters."""
@@ -129,18 +245,16 @@ class BookingComFlightsAPI:
         # Construct the query string from the parameters
         query_string = urlencode(params)
         flight_endpoint = f"/api/v1/flights/searchFlights?{query_string}"
-        #flight_endpoint = f"/api/v1/flights/searchFlights?fromId=BOM.AIRPORT&toId=DEL.AIRPORT&departDate=2025-12-12&stops=none&pageNo=1&adults=1&children=0%2C17&sort=BEST&cabinClass=ECONOMY&currency_code=AED"
 
         flight_data_dict = self._make_api_call("GET", flight_endpoint)
         
         idx = 0
         while not flight_data_dict.get('data') and idx < 3:
-            idx+=1
+            idx += 1
             flight_data_dict = self._make_api_call("GET", flight_endpoint)
 
-        #print("FLIGHT_dATA_DICT", flight_data_dict)
         if flight_data_dict and flight_data_dict['data'].get('flightOffers'):
-            total_count = flight_data_dict['data'].get('aggregation').get('totalCount', 0)
+            total_count = flight_data_dict['data'].get('aggregation', {}).get('totalCount', 0)
             print(f"✅ Flight Search Success: Found **{total_count}** flight offers.")
             return flight_data_dict
         else:

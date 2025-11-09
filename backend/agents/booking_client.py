@@ -1,5 +1,6 @@
 import http.client
 import json
+import time
 from typing import Dict, Any, Optional, List
 
 # --- Configuration Variables ---
@@ -127,11 +128,14 @@ class BookingComAPI:
             print("❌ Failed to get filter data.")
             return None
 
-    def search_hotels(self) -> Optional[Dict[str, Any]]:
+    def search_hotels(self, page_number: int = None) -> Optional[Dict[str, Any]]:
         """Searches for hotels based on all configured parameters."""
         if not self.DEST_ID or not self.SEARCH_TYPE:
             print("❌ Cannot search hotels: Destination ID or Search Type is missing.")
             return None
+        
+        # Use provided page_number or fall back to instance variable
+        current_page = page_number if page_number is not None else self.PAGE_NUMBER
             
         hotel_endpoint = (
             f"/api/v1/hotels/searchHotels?"
@@ -142,7 +146,7 @@ class BookingComAPI:
             f"adults={self.ADULTS}&"
             f"children_age={self.CHILDREN_AGE}&"
             f"room_qty={self.ROOM_QTY}&"
-            f"page_number={self.PAGE_NUMBER}&"
+            f"page_number={current_page}&"
             f"price_min={self.PRICE_MIN}&"
             f"price_max={self.PRICE_MAX}&"
             f"units={self.UNITS}&"
@@ -153,14 +157,49 @@ class BookingComAPI:
         )
 
         hotel_data_dict = self._make_api_call("GET", hotel_endpoint)
-        #print(hotel_data_dict)
+        
         if hotel_data_dict and hotel_data_dict.get('data'):
             hotel_results = hotel_data_dict['data']
-            print(f"✅ Hotel Search Results Retrieved: {len(hotel_results.get('hotels', []))} hotels on page {self.PAGE_NUMBER}.")
+            print(f"✅ Hotel Search Results Retrieved: {len(hotel_results.get('hotels', []))} hotels on page {current_page}.")
             return hotel_data_dict
         else:
             print("❌ Failed to get hotel search data.")
             return None
+    
+    def search_multiple_pages(self, max_pages: int = 5, target_hotels: int = 100) -> List[Dict[str, Any]]:
+        """
+        Search multiple pages of hotels to get a larger selection.
+        
+        Args:
+            max_pages: Maximum number of pages to fetch (default 5)
+            target_hotels: Target number of hotels to collect (default 100)
+        
+        Returns:
+            List of all hotels collected from multiple pages
+        """
+        all_hotels = []
+        
+        for page in range(1, max_pages + 1):
+            print(f"\n🔍 Fetching page {page}...")
+            
+            result = self.search_hotels(page_number=page)
+            if result and result.get('data', {}).get('hotels'):
+                hotels = result['data']['hotels']
+                all_hotels.extend(hotels)
+                print(f"   Total hotels collected so far: {len(all_hotels)}")
+                
+                # Stop if we've reached our target
+                if len(all_hotels) >= target_hotels:
+                    print(f"✅ Reached target of {target_hotels} hotels!")
+                    break
+            else:
+                print(f"   No hotels found on page {page}, stopping search.")
+                break
+                
+            # Small delay to be respectful to the API
+            time.sleep(0.5)
+        
+        return all_hotels
 
     def get_hotel_details(self, hotel_id: int) -> Optional[Dict[str, Any]]:
         """Retrieves specific details for a single hotel, including room photos."""
@@ -178,8 +217,7 @@ class BookingComAPI:
             f"currency_code={self.CURRENCY_CODE}"
         )
         details_data_dict = self._make_api_call("GET", details_endpoint)
-        #print(details_data_dict)
-
+        
         if details_data_dict and details_data_dict.get('data'):
             print(f"✅ Hotel Details Retrieved for hotel ID: **{hotel_id}**")
             return details_data_dict
@@ -187,100 +225,131 @@ class BookingComAPI:
             print(f"❌ Failed to get hotel details for hotel ID: {hotel_id}.")
             return None
 
+
 def main() -> Optional[Dict[str, Any]]:
-    """Executes the API flow and returns the final hotel data dictionary."""
+    """Executes the API flow with improved multi-page search."""
     
     api_client = BookingComAPI(API_HOST, API_KEY, CITY_QUERY=CITY_QUERY)
     
-    # Initialize variables for the final dictionary
-    result_data = {
-        "destionation": api_client.CITY_QUERY, # Default to query, will update if search succeeds
-        "hotel_name": "N/A",
-        "hotel_description": "N/A",
-        "price": 0,
-        "currency": "N/A",
-        "booking_hotel_id": 0,
-        "hotel_photo_url": [],
-        "room_photo_url": "N/A",
-        "booking_url": "https://booking.com"
-    }
-
-
     # 1. Search Destination
     if not api_client.search_destination():
         print("Final result not available due to destination search failure.")
         return None
     
-    # Update destination name
-    result_data["destionation"] = api_client.DESTINATION
-
-    # 2. Get Filters (Optional, for count)
-    #api_client.get_filters()
-
-    # 3. Search Hotels
-    hotel_search_result = api_client.search_hotels()
+    # 2. Get Filters to see total available hotels (Optional)
+    filter_result = api_client.get_filters()
     
-    if not (hotel_search_result and hotel_search_result['data'].get('hotels')):
-        print("Final result not available due to hotel search failure or no results.")
+    # 3. Search Multiple Pages of Hotels
+    print("\n🏨 Starting comprehensive hotel search...")
+    all_hotels = api_client.search_multiple_pages(max_pages=5, target_hotels=100)
+    
+    if not all_hotels:
+        print("No hotels found in search.")
         return None
     
-    first_hotel = hotel_search_result['data']['hotels'][0]
-    hotel_id = first_hotel['hotel_id']
+    print(f"\n📊 Total hotels collected: {len(all_hotels)}")
     
-    # Extract data from hotel search result
-    result_data["booking_hotel_id"] = hotel_id
-    result_data["hotel_name"] = first_hotel['property']['name']
-    result_data["hotel_description"] = first_hotel.get('accessibilityLabel', 'N/A')
+    # 4. Filter and rank hotels
+    print("\n🎯 Filtering hotels within budget and ranking by value...")
     
-    # Safely extract price details
-    price_breakdown = first_hotel['property']['priceBreakdown']['grossPrice']
-    result_data["price"] = price_breakdown.get('value', 0)
-    result_data["currency"] = price_breakdown.get('currency', 'N/A')
+    # Filter hotels within budget and sort by rating and price
+    filtered_hotels = []
+    for hotel in all_hotels:
+        try:
+            price_breakdown = hotel.get('property', {}).get('priceBreakdown', {}).get('grossPrice', {})
+            price = price_breakdown.get('value', 0)
+            rating = hotel.get('property', {}).get('reviewScore', 0)
+            
+            # Skip hotels without price or that exceed budget
+            if price == 0 or price > api_client.PRICE_MAX:
+                continue
+                
+            # Calculate value score (rating per price ratio)
+            value_score = (rating / price * 100) if price > 0 else 0
+            
+            filtered_hotels.append({
+                'hotel': hotel,
+                'price': price,
+                'rating': rating,
+                'value_score': value_score
+            })
+        except Exception as e:
+            print(f"Error processing hotel: {e}")
+            continue
     
-    # Get general photo URLs
-    result_data["hotel_photo_url"] = first_hotel['property'].get('photoUrls', [])
+    # Sort by value score (best value for money)
+    filtered_hotels.sort(key=lambda x: x['value_score'], reverse=True)
     
-    print(f"\n--- First Hotel Found & Data Collected ---")
-
-
-    # 4. Get Hotel Details (For specific room photo)
+    print(f"✅ Found {len(filtered_hotels)} hotels within budget (max: {api_client.PRICE_MAX})")
+    
+    if not filtered_hotels:
+        print("❌ No hotels found within the specified budget.")
+        return None
+    
+    # Show top 5 hotels
+    print("\n🏆 Top 5 Best Value Hotels:")
+    for i, hotel_data in enumerate(filtered_hotels[:5], 1):
+        hotel = hotel_data['hotel']
+        print(f"\n{i}. {hotel['property']['name']}")
+        print(f"   Price: {hotel_data['price']} EUR")
+        print(f"   Rating: {hotel_data['rating']}/10")
+        print(f"   Value Score: {hotel_data['value_score']:.2f}")
+    
+    # Get details for the best value hotel
+    best_hotel = filtered_hotels[0]['hotel']
+    hotel_id = best_hotel['hotel_id']
+    
+    print(f"\n🔍 Getting full details for the best value hotel...")
+    
+    # Extract data for the best hotel
+    result_data = {
+        "destination": api_client.DESTINATION,
+        "hotel_name": best_hotel['property']['name'],
+        "hotel_description": best_hotel.get('accessibilityLabel', 'N/A'),
+        "price": filtered_hotels[0]['price'],
+        "currency": "EUR",
+        "booking_hotel_id": hotel_id,
+        "hotel_photo_url": best_hotel['property'].get('photoUrls', []),
+        "room_photo_url": "N/A",
+        "booking_url": best_hotel['property'].get('url', f"https://www.booking.com/searchresults.html?ss={api_client.CITY_QUERY}"),
+        "rating": filtered_hotels[0]['rating'],
+        "value_score": filtered_hotels[0]['value_score']
+    }
+    
+    # Get detailed information
     details_result = api_client.get_hotel_details(hotel_id)
     
     if details_result:
         hotel_data = details_result['data']
         rooms = hotel_data.get('rooms', {})
-        photo_urls_rooms: List[str] = []
-        result_data["booking_url"] = hotel_data.get("url")
-        # Extract high-res room photos
+        
+        # Update booking URL if available
+        if hotel_data.get("url"):
+            result_data["booking_url"] = hotel_data.get("url")
+        
+        # Extract room photos
         if rooms:
             try:
-                # Get the first room ID/key
                 first_room_id = next(iter(rooms))
                 first_room_data = rooms.get(first_room_id, {})
                 photos_list = first_room_data.get('photos', [])
                 
-                # Collect all high-res URLs for the room
                 for photo in photos_list:
                     url = photo.get('url_max1280')
                     if url:
-                        photo_urls_rooms.append(url)
+                        result_data["room_photo_url"] = url
+                        break
             except StopIteration:
-                pass # No rooms found
-        
-        # Update final dictionary with the first room photo URL
-        if photo_urls_rooms:
-            result_data["room_photo_url"] = photo_urls_rooms[0]
-            print(f"✅ Extracted first room photo URL.")
-        else:
-            print(f"⚠️ No high-res room photos found in the details.")
-
-    print("\n🎉 Final Dictionary Complete.")
+                pass
+    
+    print("\n🎉 Final Selection Complete!")
     return result_data
+
 
 if __name__ == "__main__":
     final_output = main()
     if final_output:
         print("\n=======================================================")
-        print("🚀 FINAL RETURNED DATA:")
+        print("🚀 FINAL BEST VALUE HOTEL:")
         print(json.dumps(final_output, indent=4))
         print("=======================================================")

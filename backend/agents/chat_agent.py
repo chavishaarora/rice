@@ -6,7 +6,7 @@ from database import db, Conversation, Message, TravelSuggestion, Profile
 from agents.iternerary_manager import ItineraryManager
 from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
-from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
+from agents.utils import normalize_date, parse_recommendations_with_links
 import re
 
 # Configure Gemini
@@ -27,7 +27,7 @@ class ChatService:
                     # Tool for searching hotels
                     types.FunctionDeclaration(
                         name="search_hotels",
-                        description="Searches for hotels in a specific city, for a given date range and budget.",
+                        description="Searches for hotels in a specific city, for a given date range and budget. Returns top 3 best value hotels.",
                         parameters={
                             "type": "OBJECT",
                             "properties": {
@@ -108,6 +108,8 @@ class ChatService:
 
         Once you have all information, you can use your tools to find hotels, flights, and activities.
         When you get tool results, present them to the user in a clean, readable format.
+        
+        Note: The search_hotels tool returns the top 3 best value hotels for the destination.
 
         **CRITICAL FLIGHT BOOKING LOGIC**:
         The user will provide an "Arrival Date" (when they land at the destination) and a "Departure Date" (when they leave the destination).
@@ -117,6 +119,7 @@ class ChatService:
         **CRITICAL RULE**: If an item is already in the ITINERARY (see above),
         do NOT call a tool to find it again unless the user explicitly asks.
         """
+        
     def process_message(self, user_message_content: str):
         # Save user message
         db.session.add(Message(conversation_id=self.conversation.id, role='user', content=user_message_content))
@@ -155,7 +158,18 @@ class ChatService:
                         price_max=int(tool_args.get('price_max', 1000)),
                         ADULTS=int(tool_args.get('adults', 1))
                     )
-                    self.IteneraryManager._save_hotel_to_db(tool_result)
+                    
+                    # FIXED: Handle list of hotels (top 3)
+                    if tool_result:
+                        if isinstance(tool_result, list):
+                            # Multiple hotels returned
+                            for hotel in tool_result:
+                                self.IteneraryManager._save_hotel_to_db(hotel)
+                            print(f"✅ Saved {len(tool_result)} hotels to database")
+                        else:
+                            # Single hotel (backward compatibility)
+                            self.IteneraryManager._save_hotel_to_db(tool_result)
+                            print(f"✅ Saved 1 hotel to database")
 
                 elif tool_name == "search_flights":
                     try:
@@ -165,10 +179,12 @@ class ChatService:
                             departure_date=tool_args.get('departure_date'),
                             ADULTS=int(tool_args.get('adults', 1))
                         )
-                        self.IteneraryManager._save_flight_to_db(tool_result)
-                    except:
-                        tool_result = dict()
-                        pass
+                        if tool_result:
+                            self.IteneraryManager._save_flight_to_db(tool_result)
+                            print(f"✅ Saved flight to database")
+                    except Exception as e:
+                        print(f"❌ Error searching flights: {e}")
+                        tool_result = {"error": str(e)}
                     
                 elif tool_name == "get_activity_recommendations":
                     itinerary_text = self._get_activity_itinerary(
@@ -242,64 +258,3 @@ class ChatService:
     def _update_prefs_from_text(self, text):
         # A simple LLM call or regex to extract entities from the user's
         pass
-
-    # def _save_hotel_suggestion(self, hotel_data: dict):
-    #     """Saves a hotel tool result to the TravelSuggestion table."""
-    #     if not hotel_data or hotel_data.get('error'):
-    #         print("Hotel search returned no data or an error. Not saving.")
-    #         return
-        
-    #     try:
-    #         # Replicate logic from your original app.py
-    #         rating_10_point = hotel_data.get('rating', 0)
-    #         rating_5_point = rating_10_point / 2.0 if rating_10_point > 0 else 0
-
-    #         image_url = hotel_data.get('room_photo_url', 'N/A')
-    #         if image_url == 'N/A' or not image_url:
-    #             hotel_photos = hotel_data.get('hotel_photo_url', [])
-    #             if hotel_photos and len(hotel_photos) > 0:
-    #                 image_url = hotel_photos[0]
-
-    #         suggestion = TravelSuggestion(
-    #             conversation_id=self.conversation.id,
-    #             type='hotel',
-    #             title=hotel_data.get('hotel_name'),
-    #             description=hotel_data.get('hotel_description'),
-    #             price=hotel_data.get('price'),
-    #             rating=rating_5_point,
-    #             image_url=image_url,
-    #             booking_url=hotel_data.get('booking_url'),
-    #             location={'address': hotel_data.get('destination')}
-    #         )
-    #         db.session.add(suggestion)
-    #         print(f"Added hotel suggestion to session: {hotel_data.get('hotel_name')}")
-    #     except Exception as e:
-    #         print(f"Error saving hotel suggestion: {e}")
-    #         # Don't halt the chat, just log the error
-
-    # def _save_flight_suggestion(self, flight_data: dict):
-    #     """Saves a flight tool result to the TravelSuggestion table."""
-    #     if not flight_data or flight_data.get('error'):
-    #         print("Flight search returned no data or an error. Not saving.")
-    #         return
-
-    #     try:
-    #         # Replicate logic from your original app.py
-    #         suggestion = TravelSuggestion(
-    #             conversation_id=self.conversation.id,
-    #             type='flight',
-    #             title=flight_data.get('title'),
-    #             description=flight_data.get('description'),
-    #             price=flight_data.get('price'),
-    #             rating=None, # Flights don't have ratings
-    #             image_url=flight_data.get('image_url'),
-    #             booking_url=flight_data.get('booking_url'),
-    #             location={
-    #                 'origin': flight_data.get('origin_code'), 
-    #                 'destination': flight_data.get('destination_code')
-    #             }
-    #         )
-    #         db.session.add(suggestion)
-    #         print(f"Added flight suggestion to session: {flight_data.get('title')}")
-    #     except Exception as e:
-    #         print(f"Error saving flight suggestion: {e}")
