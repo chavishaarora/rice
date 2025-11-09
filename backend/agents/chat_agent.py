@@ -7,6 +7,7 @@ from agents.iternerary_manager import ItineraryManager
 from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
 from agents.shop_agent import search_shops
+from agents.leisure_agent import search_leisure
 from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
 import re
 
@@ -76,7 +77,19 @@ class ChatService:
                             "type": "OBJECT",
                             "properties": {
                                 "city": {"type": "STRING", "description": "The city to search in, e.g., 'Amsterdam'"},
-                                "categories": {"type": "STRING", "description": "Comma-separated list of categories, e.g., 'commercial.supermarket' or 'leisure.park'"},
+                                "categories": {"type": "STRING", "description": "'commercial.supermarket'"},
+                            },
+                            "required": ["city", "categories"]
+                        }
+                    ),
+                    types.FunctionDeclaration(
+                        name="search_leisure",
+                        description="Searches for shops, supermarkets, or points of interest near a location.",
+                        parameters={
+                            "type": "OBJECT",
+                            "properties": {
+                                "city": {"type": "STRING", "description": "The city to search in, e.g., 'Amsterdam'"},
+                                "categories": {"type": "STRING", "description": "'leisure'"},
                             },
                             "required": ["city", "categories"]
                         }
@@ -142,7 +155,14 @@ class ChatService:
         chat_history = self._get_chat_history()
         # Send to Gemini
         response = self.model.generate_content(chat_history)
-        
+        tool_result = search_leisure(
+            city='amsterdam',
+            categories='leisure'
+        )
+        self.IteneraryManager._save_leisure_to_db(tool_result)
+
+        print(tool_result)
+
         # Check if the LLM wants to call one *or more* tools
         try:
             model_response_content = response.candidates[0].content
@@ -223,6 +243,16 @@ class ChatService:
 
                     print(tool_result)
                 
+                elif tool_name == "search_leisure":
+                    tool_result = search_leisure(
+                        city=tool_args.get('city'),
+                        categories=tool_args.get('categories')
+                    )
+                    self.IteneraryManager._save_leisure_to_db(tool_result)
+
+                    print(tool_result)
+
+
                 function_response_parts.append(
                     types.PartDict(
                         function_response=types.ContentDict(

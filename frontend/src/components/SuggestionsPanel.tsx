@@ -8,14 +8,14 @@ import {
   MapPin,
   Star,
   ExternalLink,
-  Utensils,
   ShoppingCart,
+  Utensils,
+  Trees,
 } from "lucide-react";
 
 interface Suggestion {
   id: string;
-  type: "flight" | "hotel" | "attraction" | "restaurant" | "shop";
-  title: string;
+  type: "flight" | "hotel" | "attraction" | "restaurant" | "shop" | "leisure";  title: string;
   description: string;
   price: number;
   rating: number;
@@ -39,6 +39,7 @@ interface GroupedSuggestions {
   attractions: Suggestion[];
   restaurants: Suggestion[];
   shops: Suggestion[]; 
+  leisure: Suggestion[];
 }
 
 interface SuggestionsPanelProps {
@@ -56,6 +57,7 @@ const SuggestionsPanel = ({
     attractions: [],
     restaurants: [],
     shops: [],
+    leisure: [],
   });
   const [loading, setLoading] = useState(true);
   const [destination, setDestination] = useState<string>("");
@@ -99,6 +101,7 @@ const SuggestionsPanel = ({
         attractions: [],
         restaurants: [],
         shops: [],  
+        leisure: [],
       };
 
       loadedSuggestions.forEach((suggestion) => {
@@ -110,6 +113,8 @@ const SuggestionsPanel = ({
           grouped.restaurants.push(suggestion);
         } else if (suggestion.type === "shop") { // <-- 6. ADD LOGIC TO GROUP SHOPS
           grouped.shops.push(suggestion);
+        } else if (suggestion.type === "leisure") { // 3. UPDATED: Group Leisure items
+          grouped.leisure.push(suggestion);
         } else {
           // Default to attraction
           grouped.attractions.push(suggestion);
@@ -239,6 +244,67 @@ const SuggestionsPanel = ({
                         Book Now <ExternalLink size={16} className="ml-2" />
                       </a>
                     </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+      {/* 5. NEW: Render Leisure */}
+      {suggestions.leisure.length > 0 && (
+        <section>
+          <h2 className="text-2xl font-bold mb-4 flex items-center">
+            <Trees className="mr-2" /> Leisure
+          </h2>
+          <div className="grid grid-cols-1 gap-4">
+            {suggestions.leisure.map((leisure) => (
+              <Card key={leisure.id} className="overflow-hidden shadow-md">
+                <CardContent className="p-4">
+                  <h3 className="text-lg font-semibold">{leisure.title}</h3>
+
+                  <p className="text-sm text-gray-700 mt-1 line-clamp-2">
+                    {leisure.description}
+                  </p>
+                  
+                  {/* Display Opening Hours if available */}
+                  {leisure.location?.opening_hours && leisure.location.opening_hours !== "N/A" && (
+                     <p className="text-sm text-gray-600 mt-2">
+                        <strong>Hours:</strong> {leisure.location.opening_hours}
+                     </p>
+                  )}
+
+                  <div className="flex items-center text-sm text-gray-600 my-3">
+                    <MapPin size={16} className="mr-2 flex-shrink-0" />
+                    <span>{leisure.location?.address}</span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center mt-4">
+                    {/* Phone number if it exists */}
+                    {leisure.location?.phone ? (
+                       <Badge variant="outline">
+                         {leisure.location.phone}
+                       </Badge>
+                    ) : (
+                      <div></div> // Empty div for spacing
+                    )}
+
+                    {/* Use booking_url for website link */}
+                    {leisure.booking_url && (
+                      <Button
+                        asChild
+                        size="sm"
+                        onClick={() => window.open(leisure.booking_url, "_blank")}
+                      >
+                        <a
+                          href={leisure.booking_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Website <ExternalLink size={16} className="ml-2" />
+                        </a>
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
