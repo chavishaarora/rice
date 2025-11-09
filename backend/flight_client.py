@@ -127,7 +127,7 @@ class BookingComFlightsAPI:
         flight_endpoint = f"/api/v1/flights/searchFlights?{query_string}"
 
         flight_data_dict = self._make_api_call("GET", flight_endpoint)
-        
+        print("FLIGHT_dATA_DICT", flight_data_dict)
         if flight_data_dict and flight_data_dict['data'].get('flightOffers'):
             total_count = flight_data_dict['data'].get('aggregation').get('totalCount', 0)
             print(f"✅ Flight Search Success: Found **{total_count}** flight offers.")
