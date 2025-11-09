@@ -61,6 +61,13 @@ npm run dev
 
 The frontend application should now be accessible at `http://localhost:8080`.
 
+## Getting Started
+
+1. Open your browser and navigate to `http://localhost:8080`
+2. **Sign Up**: Create a new account with your email and password
+3. **Log In**: Use your credentials to access the AI Travel Agent
+4. Start planning your trip by chatting with the AI agent!
+
 ## How It Works
 
 The AI Travel Agent will guide you through the trip planning process by asking about:
@@ -91,6 +98,13 @@ This project integrates with the following APIs:
 
 *Note: You may need to configure API keys in the backend configuration files.*
 
+## Current Limitations
+
+**Booking Restrictions**: Due to current API limitations, the application does not make actual reservations on behalf of users. The AI agent provides recommendations and information about flights, hotels, restaurants, and attractions, but users must complete bookings independently through the respective platforms.
+
+*Note: The system is designed to support automated reservations, and this functionality can be easily enabled once API permissions for booking are obtained.*
+
 ---
 
 Happy travels! 🎒✨
+
