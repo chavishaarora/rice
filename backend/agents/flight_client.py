@@ -128,7 +128,8 @@ class BookingComFlightsAPI:
         
         # Construct the query string from the parameters
         query_string = urlencode(params)
-        flight_endpoint = f"/api/v1/flights/searchFlights?fromId=BOM.AIRPORT&toId=DEL.AIRPORT&departDate=2025-12-12&stops=none&pageNo=1&adults=1&children=0%2C17&sort=BEST&cabinClass=ECONOMY&currency_code=AED"
+        flight_endpoint = f"/api/v1/flights/searchFlights?{query_string}"
+        #flight_endpoint = f"/api/v1/flights/searchFlights?fromId=BOM.AIRPORT&toId=DEL.AIRPORT&departDate=2025-12-12&stops=none&pageNo=1&adults=1&children=0%2C17&sort=BEST&cabinClass=ECONOMY&currency_code=AED"
 
         flight_data_dict = self._make_api_call("GET", flight_endpoint)
         
@@ -137,7 +138,7 @@ class BookingComFlightsAPI:
             idx+=1
             flight_data_dict = self._make_api_call("GET", flight_endpoint)
 
-        print("FLIGHT_dATA_DICT", flight_data_dict)
+        #print("FLIGHT_dATA_DICT", flight_data_dict)
         if flight_data_dict and flight_data_dict['data'].get('flightOffers'):
             total_count = flight_data_dict['data'].get('aggregation').get('totalCount', 0)
             print(f"✅ Flight Search Success: Found **{total_count}** flight offers.")

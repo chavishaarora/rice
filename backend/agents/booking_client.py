@@ -153,7 +153,7 @@ class BookingComAPI:
         )
 
         hotel_data_dict = self._make_api_call("GET", hotel_endpoint)
-        print(hotel_data_dict)
+        #print(hotel_data_dict)
         if hotel_data_dict and hotel_data_dict.get('data'):
             hotel_results = hotel_data_dict['data']
             print(f"✅ Hotel Search Results Retrieved: {len(hotel_results.get('hotels', []))} hotels on page {self.PAGE_NUMBER}.")
@@ -178,7 +178,7 @@ class BookingComAPI:
             f"currency_code={self.CURRENCY_CODE}"
         )
         details_data_dict = self._make_api_call("GET", details_endpoint)
-        print(details_data_dict)
+        #print(details_data_dict)
 
         if details_data_dict and details_data_dict.get('data'):
             print(f"✅ Hotel Details Retrieved for hotel ID: **{hotel_id}**")

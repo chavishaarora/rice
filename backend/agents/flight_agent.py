@@ -16,7 +16,7 @@ def search_flights(origin_city: str, destination_city: str, departure_date: str,
 
         api_client = BookingComFlightsAPI(API_HOST, API_KEY)
 
-        origin_city = 'Amsterdam'
+       # origin_city = 'Amsterdam'
         # 1. Get Origin Airport ID
         if not api_client.search_airport(origin_city, is_origin=True):
             print(f"Could not find origin airport for: {origin_city}")

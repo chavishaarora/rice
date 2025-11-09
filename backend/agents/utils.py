@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, date
 import urllib.parse
+import re
 
 
 def normalize_date(date_str: str) -> date:
