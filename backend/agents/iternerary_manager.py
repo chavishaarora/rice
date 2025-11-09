@@ -251,3 +251,53 @@ class ItineraryManager:
         )
         db.session.add(suggestion)
         print(f"Added shop suggestion: {shop_name}")
+
+    def _save_leisure_to_db(self, leisure_data: dict):
+        """Internal method to save a shop (POI) to the DB."""
+        if not leisure_data or leisure_data.get('error'):
+            print("Leisure search returned no data or an error.")
+            return
+
+        leisure_name = leisure_data.get('name')
+        if not leisure_name:
+            print("Leisure data is missing a name and cannot be saved.")
+            return
+
+        # 1. 🔍 Check for existing shop (Duplicate Check)
+        existing_leisure = TravelSuggestion.query.filter_by(
+            conversation_id=self.conversation_id,
+            type='leisure',
+            title=leisure_name  # Filter by the shop's name
+        ).first()
+
+        if existing_leisure:
+            print(f"ItineraryManager: Leisure '{leisure_name}' already exists in DB. Skipping.")
+            return # Exit the function, preventing a duplicate from being added
+
+        print(f"ItineraryManager: Saving leisure '{leisure_name}' to DB.")
+
+        # Build the location JSON
+        location_data = {
+            'address': leisure_data.get('full_address'),
+            'lat': leisure_data.get('lat'),
+            'lon': leisure_data.get('lon'),
+            'phone': leisure_data.get('phone'),
+            'opening_hours': leisure_data.get('opening_hours'),
+            'city': leisure_data.get('city'),
+            'postcode': leisure_data.get('postcode'),
+            'street': leisure_data.get('street')
+        }
+        
+        suggestion = TravelSuggestion(
+            conversation_id=self.conversation_id,
+            type='leisure',
+            title=leisure_name,
+            description=leisure_data.get('full_address') or leisure_data.get('address_line2'),
+            price=None,
+            rating=None,
+            image_url=None,
+            booking_url=leisure_data.get('website'),
+            location=location_data
+        )
+        db.session.add(suggestion)
+        print(f"Added leisure suggestion: {leisure_name}")
