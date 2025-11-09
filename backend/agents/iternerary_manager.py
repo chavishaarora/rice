@@ -153,6 +153,69 @@ class ItineraryManager:
             import traceback
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
+    
+    def select_ideal_choice(self, suggestion_id: int) -> dict:
+        """
+        Public method to select a specific TravelSuggestion by ID.
+        It calls the internal method to delete all other suggestions of the same type.
+        """
+        print(f"ItineraryManager: Executing 'select_ideal_choice' for ID: {suggestion_id}")
+        
+        available_ids = TravelSuggestion.query.with_entities(TravelSuggestion.id).filter_by(
+            conversation_id=self.conversation_id
+        ).limit(20).all()
+        
+        # Extract just the ID numbers
+        id_list = [id[0] for id in available_ids]
+        print(f"DEBUG: Available Suggestion IDs in DB session: {id_list}")
+        
+        if suggestion_id not in id_list:
+            print(f"DEBUG ALERT: Requested ID {suggestion_id} is NOT in the available list.")
+
+        selected_suggestion = TravelSuggestion.query.filter_by(
+            conversation_id=self.conversation_id,
+            id=suggestion_id,
+        ).first()
+
+        if not selected_suggestion:
+            return {"status": "error", "message": f"Suggestion with ID {suggestion_id} not found."}
+
+        # Use the internal function to destroy all non-selected items of this type
+        self._select_and_destroy_suggestions(selected_suggestion)
+        
+        # Reload state to reflect the changes
+        self.load_from_db()
+
+        return {
+            "status": "success", 
+            "message": f"Selected '{selected_suggestion.title}' ({selected_suggestion.type}). All other {selected_suggestion.type} suggestions have been removed.",
+            "selected_title": selected_suggestion.title,
+            "selected_type": selected_suggestion.type
+        }
+
+
+    def _select_and_destroy_suggestions(self, selected_suggestion: TravelSuggestion):
+        """
+        Internal method: Keeps the selected item and deletes all other
+        TravelSuggestion items of the same 'type' for the conversation.
+        """
+        item_type = selected_suggestion.type
+        item_id = selected_suggestion.id
+        
+        # 1. Query for ALL items of the same type in this conversation
+        suggestions_to_delete = TravelSuggestion.query.filter(
+            TravelSuggestion.conversation_id == self.conversation_id,
+            TravelSuggestion.type == item_type,
+            TravelSuggestion.id != item_id # Exclude the one we want to keep
+        ).all()
+
+        deleted_count = 0
+        for suggestion in suggestions_to_delete:
+            db.session.delete(suggestion)
+            deleted_count += 1
+            print(f"ItineraryManager: Deleted unselected {item_type}: {suggestion.title}")
+
+        print(f"ItineraryManager: Successfully removed {deleted_count} unselected '{item_type}' suggestions.")
 
     def _save_hotel_to_db(self, hotel_data: dict):
         """Internal method to save a hotel to the DB."""

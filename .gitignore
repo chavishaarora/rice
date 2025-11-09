@@ -1,0 +1,6 @@
+/frontend/node_modules/*
+flask_session
+__pycache__
+agents/__pycache__
+app_.py
+/flask_session/*
