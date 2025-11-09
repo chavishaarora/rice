@@ -86,8 +86,31 @@ def search_flights(origin_city: str, destination_city: str, departure_date: str,
         title = f"Flight from {dep_airport} to {arr_airport}"
         description = f"Operated by {airline_name}. Departs: {dep_time_str}. Arrives: {arr_time_str}."
         
-        # Create a generic booking URL
-        booking_url = f"https://www.booking.com/flights/search?fromId={api_client.ORIGIN_ID}&toId={api_client.DESTINATION_ID}&departDate={departure_date}&adults={flight_params['adults']}"
+        # Create the most specific Booking.com flights search URL possible
+        # This gets users as close to the exact flight as we can
+        from urllib.parse import quote
+        
+        # Format the date properly (remove time if present)
+        date_only = departure_date.split('T')[0] if 'T' in departure_date else departure_date
+        
+        # Extract carrier code for airline filter
+        carrier_code = first_leg.get('flightInfo', {}).get('carrierInfo', {}).get('marketingCarrier', '')
+        
+        # Build URL with maximum relevant parameters to pre-filter results
+        booking_url = (
+            f"https://www.booking.com/flights/"
+            f"?type=ONEWAY"
+            f"&adults={flight_params['adults']}"
+            f"&cabinClass={flight_params['cabinClass']}"
+            f"&from={quote(dep_airport)}"
+            f"&to={quote(arr_airport)}"
+            f"&depart={date_only}"
+            f"&sort={flight_params['sort']}"
+        )
+        
+        # Add airline filter if available to narrow results
+        if carrier_code:
+            booking_url += f"&airlines={carrier_code}"
 
         return {
             'type': 'flight',
