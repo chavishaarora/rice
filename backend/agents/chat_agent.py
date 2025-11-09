@@ -106,8 +106,7 @@ class ChatService:
         )
 
     def get_system_prompt(self):
-        # The prompt is now much simpler! It just needs to guide the LLM.
-        # We can pass current preferences as context.
+        # UPGRADED SYSTEM PROMPT: Dynamic, Multi-Stage Guidance
         current_itinerary_str = json.dumps(self.IteneraryManager.to_dict(), indent=2)
 
         return f"""You are an intelligent and friendly AI travel assistant.
@@ -123,24 +122,32 @@ class ChatService:
         5. Total Budget: Ask for the overall budget for the trip.
         6. Activity Preferences: Ask what type of activities or experiences the user prefers.
 
-        Do NOT call any booking tools until you have all the required information.
-        Ask one question at a time. Be concise and helpful.
-
-        There is one exception, you SHOULD call the search_shops tool whenever you know the destination
-
-        Current user preferences (that we know so far):
-        {json.dumps(self.prefs, indent=2)}
-        
         ---
-        CURRENT ITINERARY (Your "Coat Rack"):
-        (This is your memory. Check this *before* calling a tool.)
-        {current_itinerary_str}
-        ---
+        ## 🗺️ Mode 1: PLANNING & EXPLORATION (Initial Phase)
 
-        Once you have all information, you can use your tools to find hotels, flights, and activities.
-        When you get tool results, present them to the user in a clean, readable format.
+        You are an powerful AI travel assistant. However, users are often not really good in knowing what they exactly want
+        Help them plan! Suggest activities, iteneraries, etc. Plan the epic holiday for the user.
+
+        Your goal B is to collect the **CRITICAL 6** planning variables:
+        1. **Destination**
+        2. **Origin**
+        3. **Travel Dates** (Arrival/Departure YYYY-MM-DD) (with no year provided, this is ALWAYS after the current date)
+        4. **Number of Travelers** (Adults)
+        5. **Total Budget** (or budget for flights/hotels)
+        6. **Activity Preferences** (e.g., 'relaxing', 'culture', 'mixed')
+
+        Now, goal A is exploratory. First propose some holidays to the user. Ask the user what kind of wheather is desired. What kind of holiday is preferred. Suggest locations based on this.
         
-        Note: The search_hotels tool returns the top 3 best value hotels for the destination.
+        * **Exploratory Rule:** If the user is vague (e.g., "I want a trip to Europe"), be very helpful. You are an powerful travel AI. Help the user finding its destination. For instance, show an iternerary! First focus on general vibe: weather, climate, activities. Narrow it down.
+        * **Immediate Utility Rule:** You MUST call `search_shops` (categories='commercial.supermarket') and `search_leisure` (categories='leisure') as soon as you have a **Destination** to pre-load useful local information into the ITINERARY.
+        ---
+        ## ✈️ Mode 2: BOOKING & EXECUTION (When CRITICAL 6 are met)
+
+        Once you have the CRITICAL 6, you MUST proceed directly to booking, **checking the ITINERARY first** to avoid duplicates:
+        1.  **Outbound Flight**: Search from Origin to Destination using the Arrival Date.
+        2.  **Inbound Flight**: Search from Destination to Origin using the Departure Date.
+        3.  **Hotels**: Search for the top 3 hotels using the City, Date range, Budget, and Adults.
+        4.  **Final Recommendation**: Summarize the itinerary and ask the user for confirmation.
 
         Now, goal A is exploratory. First propose some holidays to the user. Ask the user what kind of wheather is desired. What kind of holiday is preferred. Suggest locations based on this.
         
@@ -158,6 +165,7 @@ class ChatService:
         - Ask each question clearly, sequentially, avoiding repetition of previously gathered info.
         - Always clarify missing years or exact dates, and suggest destinations if only climate is given.
         """
+        
         
     def process_message(self, user_message_content: str):
         # Save user message
@@ -194,28 +202,29 @@ class ChatService:
                 
                 print(f"Executing Tool: {tool_name} with args: {tool_args}")
 
-                tool_result = None
                 if tool_name == "search_hotels":
-                    self.prefs['destination'] = tool_args.get('city')
+                    # Update destination preference immediately
+                    self.prefs['destination'] = tool_args.get('city') 
+                    
                     tool_result = search_hotels(
                         city=tool_args.get('city'),
                         arrival=tool_args.get('arrival'),
                         departure=tool_args.get('departure'),
                         price_max=int(tool_args.get('price_max', 1000)),
-                        ADULTS=int(tool_args.get('adults', 1))
+                        adults=int(tool_args.get('adults', 1))
                     )
                     
-                    # FIXED: Handle list of hotels (top 3)
                     if tool_result:
-                        if isinstance(tool_result, list):
-                            # Multiple hotels returned
-                            for hotel in tool_result:
-                                self.IteneraryManager._save_hotel_to_db(hotel)
-                            print(f"✅ Saved {len(tool_result)} hotels to database")
-                        else:
-                            # Single hotel (backward compatibility)
-                            self.IteneraryManager._save_hotel_to_db(tool_result)
-                            print(f"✅ Saved 1 hotel to database")
+                        # Ensures result is a list for uniform processing, even if one hotel is returned
+                        hotels_list = tool_result if isinstance(tool_result, list) else [tool_result]
+                        for hotel in hotels_list:
+                            # Use the correct manager instance name
+                            self.IteneraryManager._save_hotel_to_db(hotel) 
+                        print(f"✅ Saved {len(hotels_list)} hotels to database")
+                        tool_result = hotels_list # Pass the list back to the LLM
+                    else:
+                        tool_result = {"status": "error", "message": "No hotels found matching criteria."}
+
 
                 elif tool_name == "search_flights":
                     try:
