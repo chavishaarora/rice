@@ -185,7 +185,39 @@ const MapView = ({ selectedLocation, onLocationSelect, onLocationDetected }: Map
         const geocoder = new window.google.maps.Geocoder();
         geocoder.geocode({ location: { lat, lng } }, (results, status) => {
           if (status === "OK" && results?.[0]) {
-            const placeName = results[0].formatted_address;
+            // Extract city and country from address components
+            let city = "";
+            let country = "";
+            
+            for (const result of results) {
+              const components = result.address_components;
+              
+              // Find city (locality or administrative_area_level_2)
+              if (!city) {
+                const cityComponent = components.find(c => 
+                  c.types.includes("locality") || 
+                  c.types.includes("administrative_area_level_2")
+                );
+                if (cityComponent) city = cityComponent.long_name;
+              }
+              
+              // Find country
+              if (!country) {
+                const countryComponent = components.find(c => 
+                  c.types.includes("country")
+                );
+                if (countryComponent) country = countryComponent.long_name;
+              }
+              
+              // Break if we found both
+              if (city && country) break;
+            }
+            
+            // Fallback to formatted address if city/country not found
+            const placeName = (city && country) 
+              ? `${city}, ${country}` 
+              : results[0].formatted_address;
+            
             marker.current?.setTitle(placeName);
 
             const detectedLocation = { lat, lng, name: placeName };
