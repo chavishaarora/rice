@@ -134,7 +134,7 @@ class BookingComFlightsAPI:
         
         # Retry the same query a few times in case of transient failures
         idx = 0
-        while not airport_data_dict.get('data') and idx < 3:
+        while not airport_data_dict.get('data') or idx < 3:
             idx += 1
             print(f"   ⏳ Retry {idx}/3 for query: '{query}'")
             airport_data_dict = self._make_api_call("GET", airport_endpoint)
@@ -249,7 +249,7 @@ class BookingComFlightsAPI:
         flight_data_dict = self._make_api_call("GET", flight_endpoint)
         
         idx = 0
-        while not flight_data_dict.get('data') and idx < 3:
+        while not flight_data_dict.get('data') or idx < 3:
             idx += 1
             flight_data_dict = self._make_api_call("GET", flight_endpoint)
 
