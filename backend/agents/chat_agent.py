@@ -6,6 +6,7 @@ from database import db, Conversation, Message, TravelSuggestion, Profile
 from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
 from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
+import re
 
 # Configure Gemini
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -218,7 +219,7 @@ class ChatService:
         # A separate, simpler model call just for generating the itinerary
         # This avoids calling the booking APIs again.
         itinerary_model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.5-flash-lite",
             system_instruction=f"You are a travel expert. Create a day-by-day itinerary for a trip to {destination} with a focus on {activities} activities. Be creative and engaging. Add map links."
         )
         response = itinerary_model.generate_content(f"Give me an itinerary for {destination}.")
