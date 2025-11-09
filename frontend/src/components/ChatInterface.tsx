@@ -97,9 +97,19 @@ const ChatInterface = forwardRef<any, ChatInterfaceProps>(({
       }
 
       if (part.trim()) {
+        // Parse bold text wrapped in ** or ****
+        const segments = part.split(/(\*{2,4}[^*]+\*{2,4})/g);
+        
         return (
           <div key={index} className="whitespace-pre-wrap">
-            {part}
+            {segments.map((segment, segIndex) => {
+              // Check if segment is wrapped in ** or ****
+              const boldMatch = segment.match(/^\*{2,4}([^*]+)\*{2,4}$/);
+              if (boldMatch) {
+                return <strong key={segIndex}>{boldMatch[1]}</strong>;
+              }
+              return <span key={segIndex}>{segment}</span>;
+            })}
           </div>
         );
       }

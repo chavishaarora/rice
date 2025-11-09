@@ -6,7 +6,8 @@ from database import db, Conversation, Message, TravelSuggestion, Profile
 from agents.iternerary_manager import ItineraryManager
 from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
-from agents.utils import normalize_date, parse_recommendations_with_links
+from agents.shop_agent import search_shops
+from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
 import re
 
 # Configure Gemini
@@ -67,6 +68,18 @@ class ChatService:
                             },
                             "required": ["destination", "activities"]
                         }
+                    ),
+                    types.FunctionDeclaration(
+                        name="search_shops",
+                        description="Searches for shops, supermarkets, or points of interest near a location.",
+                        parameters={
+                            "type": "OBJECT",
+                            "properties": {
+                                "city": {"type": "STRING", "description": "The city to search in, e.g., 'Amsterdam'"},
+                                "categories": {"type": "STRING", "description": "Comma-separated list of categories, e.g., 'commercial.supermarket' or 'leisure.park'"},
+                            },
+                            "required": ["city", "categories"]
+                        }
                     )
                 ]
             )
@@ -94,8 +107,10 @@ class ChatService:
         5. Total Budget
         6. Activity Preferences
 
-        Do NOT call any tools until you have all the required information.
+        Do NOT call any booking tools until you have all the required information.
         Ask one question at a time. Be concise and helpful.
+
+        There is one exception, you SHOULD call the search_shops tool whenever you know the destination
 
         Current user preferences (that we know so far):
         {json.dumps(self.prefs, indent=2)}
@@ -199,6 +214,15 @@ class ChatService:
                         "message": f"Activity itinerary for {tool_args.get('destination')} was generated and sent to the user."
                     }
 
+                elif tool_name == "search_shops":
+                    tool_result = search_shops(
+                        city=tool_args.get('city'),
+                        categories=tool_args.get('categories')
+                    )
+                    self.IteneraryManager._save_shop_to_db(tool_result)
+
+                    print(tool_result)
+                
                 function_response_parts.append(
                     types.PartDict(
                         function_response=types.ContentDict(

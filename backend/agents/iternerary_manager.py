@@ -20,6 +20,7 @@ class ItineraryManager:
         self.journey_to = None
         self.journey_from = None
         self.stays = []
+        self.shops = []
         self.activities = {}
 
         # Load its own state from the DB
@@ -46,7 +47,8 @@ class ItineraryManager:
         for s in suggestions:
             if s.type == 'hotel':
                 self.stays.append(self._format_suggestion(s))
-            
+            elif s.type == 'shop':
+                self.shops.append(self._format_suggestion(s))
             elif s.type == 'flight':
                 flight_origin = s.location.get('origin', 'N/A').upper()
                 flight_dest = s.location.get('destination', 'N/A').upper()
@@ -66,6 +68,7 @@ class ItineraryManager:
         """Helper to return a clean dict for the agent's memory."""
         return {
             "id": s.id,
+            "type": s.type,
             "title": s.title,
             "description": s.description,
             "price": float(s.price) if s.price is not None else -10,
@@ -197,3 +200,54 @@ class ItineraryManager:
             }
         )
         db.session.add(suggestion)
+
+
+    def _save_shop_to_db(self, shop_data: dict):
+        """Internal method to save a shop (POI) to the DB."""
+        if not shop_data or shop_data.get('error'):
+            print("Shop search returned no data or an error.")
+            return
+
+        shop_name = shop_data.get('name')
+        if not shop_name:
+            print("Shop data is missing a name and cannot be saved.")
+            return
+
+        # 1. 🔍 Check for existing shop (Duplicate Check)
+        existing_shop = TravelSuggestion.query.filter_by(
+            conversation_id=self.conversation_id,
+            type='shop',
+            title=shop_name  # Filter by the shop's name
+        ).first()
+
+        if existing_shop:
+            print(f"ItineraryManager: Shop '{shop_name}' already exists in DB. Skipping.")
+            return # Exit the function, preventing a duplicate from being added
+
+        print(f"ItineraryManager: Saving shop '{shop_name}' to DB.")
+
+        # Build the location JSON
+        location_data = {
+            'address': shop_data.get('full_address'),
+            'lat': shop_data.get('lat'),
+            'lon': shop_data.get('lon'),
+            'phone': shop_data.get('phone'),
+            'opening_hours': shop_data.get('opening_hours'),
+            'city': shop_data.get('city'),
+            'postcode': shop_data.get('postcode'),
+            'street': shop_data.get('street')
+        }
+        
+        suggestion = TravelSuggestion(
+            conversation_id=self.conversation_id,
+            type='shop',
+            title=shop_name,
+            description=shop_data.get('full_address') or shop_data.get('address_line2'),
+            price=None,
+            rating=None,
+            image_url=None,
+            booking_url=shop_data.get('website'),
+            location=location_data
+        )
+        db.session.add(suggestion)
+        print(f"Added shop suggestion: {shop_name}")

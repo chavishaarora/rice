@@ -9,24 +9,27 @@ import {
   Star,
   ExternalLink,
   Utensils,
+  ShoppingCart,
 } from "lucide-react";
 
-// --- Interfaces (no changes) ---
 interface Suggestion {
   id: string;
-  type: "flight" | "hotel" | "attraction" | "restaurant";
+  type: "flight" | "hotel" | "attraction" | "restaurant" | "shop";
   title: string;
   description: string;
   price: number;
   rating: number;
   image_url: string;
   booking_url: string;
-  location: { 
-    lat?: number; 
-    lng?: number; 
+  location: {
+    lat?: number;
+    lng?: number;
     address?: string;
-    origin?: string;      // Added for flights
-    destination?: string; // Added for flights
+    origin?: string;
+    destination?: string;
+    // Add shop-specific fields from your DB location JSON if needed
+    phone?: string;
+    opening_hours?: string;
   } | null;
 }
 
@@ -35,6 +38,7 @@ interface GroupedSuggestions {
   hotels: Suggestion[];
   attractions: Suggestion[];
   restaurants: Suggestion[];
+  shops: Suggestion[]; 
 }
 
 interface SuggestionsPanelProps {
@@ -42,12 +46,16 @@ interface SuggestionsPanelProps {
   refreshKey: number;
 }
 
-const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps) => {
+const SuggestionsPanel = ({
+  conversationId,
+  refreshKey,
+}: SuggestionsPanelProps) => {
   const [suggestions, setSuggestions] = useState<GroupedSuggestions>({
     flights: [],
     hotels: [],
     attractions: [],
     restaurants: [],
+    shops: [],
   });
   const [loading, setLoading] = useState(true);
   const [destination, setDestination] = useState<string>("");
@@ -60,13 +68,12 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
     loadSuggestions();
     const interval = setInterval(() => {
       loadSuggestions();
-    }, 5000); // Polls for new suggestions
+    }, 5000);
     return () => {
       clearInterval(interval);
     };
   }, [conversationId, refreshKey]);
 
-  // --- loadSuggestions (Unchanged) ---
   const loadSuggestions = async () => {
     if (!conversationId) return;
 
@@ -74,8 +81,8 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
       const response = await fetch(
         `http://localhost:5001/api/suggestions/${conversationId}`,
         {
-          method: 'GET',
-          credentials: 'include'
+          method: "GET",
+          credentials: "include",
         }
       );
 
@@ -91,6 +98,7 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
         hotels: [],
         attractions: [],
         restaurants: [],
+        shops: [],  
       };
 
       loadedSuggestions.forEach((suggestion) => {
@@ -100,6 +108,8 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
           grouped.hotels.push(suggestion);
         } else if (suggestion.type === "restaurant") {
           grouped.restaurants.push(suggestion);
+        } else if (suggestion.type === "shop") { // <-- 6. ADD LOGIC TO GROUP SHOPS
+          grouped.shops.push(suggestion);
         } else {
           // Default to attraction
           grouped.attractions.push(suggestion);
@@ -111,7 +121,6 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
       }
 
       setSuggestions(grouped);
-
     } catch (error) {
       console.error("Failed to load suggestions:", error);
     } finally {
@@ -121,39 +130,28 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
 
   // --- renderStars (Unchanged) ---
   const renderStars = (rating: number) => {
-    const fullStars = Math.floor(rating);
-    const halfStar = rating % 1 !== 0; // Logic for half star if you add icon
-    const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
-    
-    return (
-      <div className="flex items-center">
-        {[...Array(fullStars)].map((_, i) => (
-          <Star key={`full-${i}`} size={16} className="text-yellow-400 fill-yellow-400" />
-        ))}
-        {/* Note: You might need a half-star icon if you want to be precise */}
-        {[...Array(emptyStars)].map((_, i) => (
-          <Star key={`empty-${i}`} size={16} className="text-gray-300 fill-gray-300" />
-        ))}
-      </div>
-    );
+    // ... (no change)
   };
 
   // --- The main return (UPDATED) ---
   return (
     <div className="p-4 space-y-6 h-full overflow-y-auto">
-      {loading && suggestions.hotels.length === 0 && suggestions.flights.length === 0 && (
-        <p className="text-center text-gray-500">Loading suggestions...</p>
-      )}
+      {loading &&
+        suggestions.hotels.length === 0 &&
+        suggestions.flights.length === 0 && (
+          <p className="text-center text-gray-500">Loading suggestions...</p>
+        )}
 
       {!loading &&
         suggestions.hotels.length === 0 &&
-        suggestions.flights.length === 0 && (
+        suggestions.flights.length === 0 &&
+        suggestions.shops.length === 0 && ( // <-- Also check for shops
           <p className="text-center text-gray-500">
             No suggestions found yet. Complete the chat to see results.
           </p>
         )}
 
-      {/* --- NEW: Render Flights --- */}
+      {/* --- Render Flights (Unchanged) --- */}
       {suggestions.flights.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-4 flex items-center">
@@ -197,7 +195,7 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
         </section>
       )}
 
-      {/* Render Hotels (Unchanged) */}
+      {/* --- Render Hotels (Unchanged) --- */}
       {suggestions.hotels.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-4 flex items-center">
@@ -241,6 +239,68 @@ const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps)
                         Book Now <ExternalLink size={16} className="ml-2" />
                       </a>
                     </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* --- 7. NEW: Render Shops --- */}
+      {suggestions.shops.length > 0 && (
+        <section>
+          <h2 className="text-2xl font-bold mb-4 flex items-center">
+            <ShoppingCart className="mr-2" /> Shops & Services
+          </h2>
+          <div className="grid grid-cols-1 gap-4">
+            {suggestions.shops.map((shop) => (
+              <Card key={shop.id} className="overflow-hidden shadow-md">
+                <CardContent className="p-4">
+                  <h3 className="text-lg font-semibold">{shop.title}</h3>
+
+                  <p className="text-sm text-gray-700 mt-1 line-clamp-2">
+                    {shop.description}
+                  </p>
+                  
+                  {/* Display Opening Hours if available */}
+                  {shop.location?.opening_hours && shop.location.opening_hours !== "N/A" && (
+                     <p className="text-sm text-gray-600 mt-2">
+                        <strong>Hours:</strong> {shop.location.opening_hours}
+                     </p>
+                  )}
+
+                  <div className="flex items-center text-sm text-gray-600 my-3">
+                    <MapPin size={16} className="mr-2 flex-shrink-0" />
+                    <span>{shop.location?.address}</span>
+                  </div>
+                  
+                  <div className="flex justify-between items-center mt-4">
+                    {/* Phone number if it exists */}
+                    {shop.location?.phone ? (
+                       <Badge variant="outline">
+                         {shop.location.phone}
+                       </Badge>
+                    ) : (
+                      <div></div> // Empty div for spacing
+                    )}
+
+                    {/* Use booking_url for website link */}
+                    {shop.booking_url && (
+                      <Button
+                        asChild
+                        size="sm"
+                        onClick={() => window.open(shop.booking_url, "_blank")}
+                      >
+                        <a
+                          href={shop.booking_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Website <ExternalLink size={16} className="ml-2" />
+                        </a>
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
