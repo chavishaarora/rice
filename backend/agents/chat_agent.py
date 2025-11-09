@@ -8,7 +8,8 @@ from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
 from agents.shop_agent import search_shops
 from agents.leisure_agent import search_leisure
-from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
+from agents.itinerary_generator import generate_detailed_itinerary
+from agents.utils import normalize_date, parse_recommendations_with_links
 import re
 
 # Configure Gemini
@@ -84,7 +85,7 @@ class ChatService:
                     ),
                     types.FunctionDeclaration(
                         name="search_leisure",
-                        description="Searches for shops, supermarkets, or points of interest near a location.",
+                        description="Searches for leisure activities near a location.",
                         parameters={
                             "type": "OBJECT",
                             "properties": {
@@ -93,6 +94,20 @@ class ChatService:
                             },
                             "required": ["city", "categories"]
                         }
+                    ),
+                    types.FunctionDeclaration(
+                        name="generate_detailed_itinerary",
+                        description="Generates a comprehensive day-by-day itinerary for the trip. ONLY call this when: 1) The user has confirmed/selected their flights AND hotels, OR 2) The user explicitly asks for an itinerary/day-by-day plan. Do not call this during initial planning.",
+                        parameters={
+                            "type": "OBJECT",
+                            "properties": {
+                                "destination": {"type": "STRING", "description": "The destination city, e.g., 'Paris'"},
+                                "arrival_date": {"type": "STRING", "description": "Check-in date (YYYY-MM-DD)"},
+                                "departure_date": {"type": "STRING", "description": "Check-out date (YYYY-MM-DD)"},
+                                "activity_preferences": {"type": "STRING", "description": "Type of activities: 'relaxing', 'adventurous', 'cultural', 'mixed', etc."}
+                            },
+                            "required": ["destination", "arrival_date", "departure_date"]
+                        }
                     )
                 ]
             )
@@ -100,89 +115,70 @@ class ChatService:
 
         # Create the model with tools
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-lite",
+            model_name="gemini-2.0-flash-exp",
             system_instruction=self.get_system_prompt(),
             tools=self.tools,
         )
 
     def get_system_prompt(self):
-        # UPGRADED SYSTEM PROMPT: Dynamic, Multi-Stage Guidance
+        # UPGRADED SYSTEM PROMPT: Dynamic, Multi-Stage Guidance with Itinerary Generation
         current_itinerary_str = json.dumps(self.IteneraryManager.to_dict(), indent=2)
 
-        return f"""You are **Itinerate**, the Epic AI Travel Assistant. Your goal is to guide the user from initial idea to a fully booked and planned trip. You must operate in two distinct modes: Planning and Booking.
-
-        ---
-        ## 🗺️ Mode 1: PLANNING & EXPLORATION (Initial Phase)
-
-        You are an powerful AI travel assistant. However, users are often not really good in knowing what they exactly want
-        Help them plan! Suggest activities, iteneraries, etc. Plan the epic holiday for the user.
-
-        Your goal B is to collect the **CRITICAL 6** planning variables:
-        1. **Destination**
-        2. **Origin**
-        3. **Travel Dates** (Arrival/Departure YYYY-MM-DD) (with no year provided, this is ALWAYS after the current date)
-        4. **Number of Travelers** (Adults)
-        5. **Total Budget** (or budget for flights/hotels)
-        6. **Activity Preferences** (e.g., 'relaxing', 'culture', 'mixed')
-
-        Now, goal A is exploratory. First propose some holidays to the user. Ask the user what kind of wheather is desired. What kind of holiday is preferred. Suggest locations based on this.
         
-        * **Exploratory Rule:** If the user is vague (e.g., "I want a trip to Europe"), be very helpful. You are an powerful travel AI. Help the user finding its destination. For instance, show an iternerary! First focus on general vibe: weather, climate, activities. Narrow it down.
-        * **Immediate Utility Rule:** You MUST call `search_shops` (categories='commercial.supermarket') and `search_leisure` (categories='leisure') as soon as you have a **Destination** to pre-load useful local information into the ITINERARY.
-        ---
-        ## ✈️ Mode 2: BOOKING & EXECUTION (When CRITICAL 6 are met)
+        return f"""You are an intelligent and friendly AI travel assistant.
+Your goal is to help the user plan their trip.
+First, you MUST gather all the necessary information:
+1. Destination
+2. Origin
+3. Travel Dates (Arrival and Departure)
+4. Number of Travelers (Adults)
+5. Total Budget
+6. Activity Preferences
 
-        Once you have the CRITICAL 6, you MUST proceed directly to booking, **checking the ITINERARY first** to avoid duplicates:
-        1.  **Outbound Flight**: Search from Origin to Destination using the Arrival Date.
-        2.  **Inbound Flight**: Search from Destination to Origin using the Departure Date.
-        3.  **Hotels**: Search for the top 3 hotels using the City, Date range, Budget, and Adults.
-        4.  **Final Recommendation**: Summarize the itinerary and ask the user for confirmation.
+Do NOT call any booking tools until you have all the required information.
+Ask one question at a time. Be concise and helpful.
 
-        **CRITICAL ITINERARY RULE**: If an item (Flight, Hotel) is already present in the CURRENT ITINERARY (see below), **do NOT call the tool again** unless the user explicitly requests an alternative.
+## Current Itinerary State
+{current_itinerary_str}
 
-        ---
-        ## 🧠 Current Trip State (ITINERARY "Coat Rack")
-        
-        Current user preferences (from conversation history):
-        {json.dumps(self.prefs, indent=2)}
-        
-        CURRENT ITINERARY (Your memory of confirmed bookings/searches):
-        {current_itinerary_str}
-        
-        ---
-        """
+Note: The search_hotels tool returns the top 3 best value hotels for the destination.
+
+**CRITICAL FLIGHT BOOKING LOGIC**:
+The user will provide an "Arrival Date" (when they land at the destination) and a "Departure Date" (when they leave the destination).
+1. To find the **outbound** flight, you MUST call `search_flights` using the user's **Origin** as the `origin_city` and their **Destination** as the `destination_city`. The `departure_date` for this flight is the user's **Arrival Date**.
+2. To find the **inbound** (return) flight, you MUST call `search_flights` a second time, but swap the cities: use the user's **Destination** as the `origin_city` and their **Origin** as the `destination_city`. The `departure_date` for this flight is the user's **Departure Date**.
+
+**CRITICAL ITINERARY DISPLAY RULE**:
+When you call `generate_detailed_itinerary`, the tool will return the complete itinerary text.
+You MUST include this FULL itinerary in your response to the user. Never say "I sent it" or "I generated it" without actually displaying the content.
+Format it nicely with markdown headers and sections so it's easy to read.
+
+**CRITICAL RULE**: If an item is already in the ITINERARY (see above),
+do NOT call a tool to find it again unless the user explicitly asks.
+"""
         
         
     def process_message(self, user_message_content: str):
         # Save user message
         db.session.add(Message(conversation_id=self.conversation.id, role='user', content=user_message_content))
-        # We commit at the end
+        
         chat_history = self._get_chat_history()
         # Send to Gemini
         response = self.model.generate_content(chat_history)
-        tool_result = search_leisure(
-            city='amsterdam',
-            categories='leisure'
-        )
-        self.IteneraryManager._save_leisure_to_db(tool_result)
-
-        print(tool_result)
 
         # Check if the LLM wants to call one *or more* tools
         try:
             model_response_content = response.candidates[0].content
-            # This is the key: get ALL function calls, not just parts[0]
             function_calls = [p.function_call for p in model_response_content.parts if p.function_call]
         except (AttributeError, IndexError, ValueError):
-            function_calls = [] # No function calls
+            function_calls = []
 
         if function_calls:
             self._save_status(f"Engine is now performing {len(function_calls)} actions. Processing...")
             print(f"Detected {len(function_calls)} tool call(s).")
             
-            # This list will hold the *results* we send back
             function_response_parts = []
-            # We MUST iterate over all function calls requested
+            
             for function_call in function_calls:
                 tool_name = function_call.name
                 tool_args = {key: value for key, value in function_call.args.items()}
@@ -203,16 +199,13 @@ class ChatService:
                     )
                     
                     if tool_result:
-                        # Ensures result is a list for uniform processing, even if one hotel is returned
                         hotels_list = tool_result if isinstance(tool_result, list) else [tool_result]
                         for hotel in hotels_list:
-                            # Use the correct manager instance name
                             self.IteneraryManager._save_hotel_to_db(hotel) 
                         print(f"✅ Saved {len(hotels_list)} hotels to database")
-                        tool_result = hotels_list # Pass the list back to the LLM
+                        tool_result = hotels_list
                     else:
                         tool_result = {"status": "error", "message": "No hotels found matching criteria."}
-
 
                 elif tool_name == "search_flights":
                     self._save_status(f"✈️ Searching for flights from **{tool_args.get('origin_city')}** to **{tool_args.get('destination_city')}**...")
@@ -237,11 +230,11 @@ class ChatService:
                         tool_args.get('activities')
                     )
                     
-                    db.session.add(Message(conversation_id=self.conversation.id, role='assistant', content=itinerary_text))
-                    
+                    # Return the actual content so LLM can display it
                     tool_result = {
-                        "status": "success", 
-                        "message": f"Activity itinerary for {tool_args.get('destination')} was generated and sent to the user."
+                        "status": "success",
+                        "recommendations": itinerary_text,
+                        "instruction": "Display these recommendations to the user in your response."
                     }
 
                 elif tool_name == "search_shops":
@@ -251,7 +244,6 @@ class ChatService:
                         categories=tool_args.get('categories')
                     )
                     self.IteneraryManager._save_shop_to_db(tool_result)
-
                     print(tool_result)
                 
                 elif tool_name == "search_leisure":
@@ -261,37 +253,66 @@ class ChatService:
                         categories=tool_args.get('categories')
                     )
                     self.IteneraryManager._save_leisure_to_db(tool_result)
-
                     print(tool_result)
 
+                elif tool_name == "generate_detailed_itinerary":
+                    print("🗓️ Generating detailed day-by-day itinerary...")
+                    
+                    # Store the parameters in preferences for future reference
+                    self.prefs['itinerary_generated'] = True
+                    self.prefs['arrival_date'] = tool_args.get('arrival_date')
+                    self.prefs['departure_date'] = tool_args.get('departure_date')
+                    
+                    try:
+                        itinerary_text = generate_detailed_itinerary(
+                            destination=tool_args.get('destination'),
+                            arrival_date=tool_args.get('arrival_date'),
+                            departure_date=tool_args.get('departure_date'),
+                            activity_preferences=tool_args.get('activity_preferences', 'mixed')
+                        )
+                        
+                        # Return the FULL itinerary to the LLM so it can display it
+                        tool_result = {
+                            "status": "success",
+                            "itinerary": itinerary_text,  # Include full content
+                            "instruction": "Display this complete itinerary to the user in your response. Format it nicely with markdown."
+                        }
+                        
+                        print(f"✅ Generated itinerary successfully")
+                    except Exception as e:
+                        print(f"❌ Error generating itinerary: {e}")
+                        tool_result = {
+                            "status": "error",
+                            "message": f"Failed to generate itinerary: {str(e)}"
+                        }
 
                 function_response_parts.append(
                     types.PartDict(
                         function_response=types.ContentDict(
                             name=tool_name,
-                            # Send the actual JSON-serializable result
                             response={"result": json.dumps(tool_result)} 
                         )
                     )
                 )
 
-            # Now we build the *single* function response message
+            # Build the function response message
             function_response_content = types.ContentDict(
                 role="function",
-                parts=function_response_parts # This list now has N parts
+                parts=function_response_parts
             )
-            # Send history, the model's request, and our N results
+            
+            # Send history, the model's request, and our results
             response = self.model.generate_content([
                 *chat_history,                
-                model_response_content,     # The model's tool call request(s)
-                function_response_content   # Our N results
+                model_response_content,
+                function_response_content
             ])
         
         final_response_text = response.candidates[0].content.parts[0].text
 
         db.session.add(Message(conversation_id=self.conversation.id, role='assistant', content=final_response_text))
         
-        # Also update the conversation preferences from any extracted data
+        # Update conversation preferences
         self._update_prefs_from_text(user_message_content) 
         self.conversation.preferences = self.prefs
         
@@ -309,16 +330,13 @@ class ChatService:
 
     def _get_activity_itinerary(self, destination, activities):
         # A separate, simpler model call just for generating the itinerary
-        # This avoids calling the booking APIs again.
         itinerary_model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash-lite",
+            model_name="gemini-2.0-flash-exp",
             system_instruction=f"You are a travel expert. Create a day-by-day itinerary for a trip to {destination} with a focus on {activities} activities. Be creative and engaging. Add map links."
         )
         response = itinerary_model.generate_content(f"Give me an itinerary for {destination}.")
         final_text = parse_recommendations_with_links(response.text, destination)
         
-        db.session.add(Message(conversation_id=self.conversation.id, role='assistant', content=final_text))
-        db.session.commit()
         return final_text
     
     def _update_prefs_from_text(self, text):
