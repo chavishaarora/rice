@@ -6,6 +6,7 @@ from database import db, Conversation, Message, TravelSuggestion, Profile
 from agents.iternerary_manager import ItineraryManager
 from agents.booking_agent import search_hotels
 from agents.flight_agent import search_flights
+from agents.shop_agent import search_shops
 from agents.utils import normalize_date, parse_recommendations_with_links # (Move your helpers to a utils file)
 import re
 
@@ -67,6 +68,18 @@ class ChatService:
                             },
                             "required": ["destination", "activities"]
                         }
+                    ),
+                    types.FunctionDeclaration(
+                        name="search_shops",
+                        description="Searches for shops, supermarkets, or points of interest near a location.",
+                        parameters={
+                            "type": "OBJECT",
+                            "properties": {
+                                "city": {"type": "STRING", "description": "The city to search in, e.g., 'Amsterdam'"},
+                                "categories": {"type": "STRING", "description": "Comma-separated list of categories, e.g., 'commercial.supermarket' or 'leisure.park'"},
+                            },
+                            "required": ["city", "categories"]
+                        }
                     )
                 ]
             )
@@ -94,8 +107,10 @@ class ChatService:
         5. Total Budget
         6. Activity Preferences
 
-        Do NOT call any tools until you have all the required information.
+        Do NOT call any booking tools until you have all the required information.
         Ask one question at a time. Be concise and helpful.
+
+        There is one exception, you SHOULD call the search_shops tool whenever you know the destination
 
         Current user preferences (that we know so far):
         {json.dumps(self.prefs, indent=2)}
@@ -183,6 +198,15 @@ class ChatService:
                         "message": f"Activity itinerary for {tool_args.get('destination')} was generated and sent to the user."
                     }
 
+                elif tool_name == "search_shops":
+                    tool_result = search_shops(
+                        city=tool_args.get('city'),
+                        categories=tool_args.get('categories')
+                    )
+                    self.IteneraryManager._save_shop_to_db(tool_result)
+
+                    print(tool_result)
+                
                 function_response_parts.append(
                     types.PartDict(
                         function_response=types.ContentDict(
@@ -242,64 +266,3 @@ class ChatService:
     def _update_prefs_from_text(self, text):
         # A simple LLM call or regex to extract entities from the user's
         pass
-
-    # def _save_hotel_suggestion(self, hotel_data: dict):
-    #     """Saves a hotel tool result to the TravelSuggestion table."""
-    #     if not hotel_data or hotel_data.get('error'):
-    #         print("Hotel search returned no data or an error. Not saving.")
-    #         return
-        
-    #     try:
-    #         # Replicate logic from your original app.py
-    #         rating_10_point = hotel_data.get('rating', 0)
-    #         rating_5_point = rating_10_point / 2.0 if rating_10_point > 0 else 0
-
-    #         image_url = hotel_data.get('room_photo_url', 'N/A')
-    #         if image_url == 'N/A' or not image_url:
-    #             hotel_photos = hotel_data.get('hotel_photo_url', [])
-    #             if hotel_photos and len(hotel_photos) > 0:
-    #                 image_url = hotel_photos[0]
-
-    #         suggestion = TravelSuggestion(
-    #             conversation_id=self.conversation.id,
-    #             type='hotel',
-    #             title=hotel_data.get('hotel_name'),
-    #             description=hotel_data.get('hotel_description'),
-    #             price=hotel_data.get('price'),
-    #             rating=rating_5_point,
-    #             image_url=image_url,
-    #             booking_url=hotel_data.get('booking_url'),
-    #             location={'address': hotel_data.get('destination')}
-    #         )
-    #         db.session.add(suggestion)
-    #         print(f"Added hotel suggestion to session: {hotel_data.get('hotel_name')}")
-    #     except Exception as e:
-    #         print(f"Error saving hotel suggestion: {e}")
-    #         # Don't halt the chat, just log the error
-
-    # def _save_flight_suggestion(self, flight_data: dict):
-    #     """Saves a flight tool result to the TravelSuggestion table."""
-    #     if not flight_data or flight_data.get('error'):
-    #         print("Flight search returned no data or an error. Not saving.")
-    #         return
-
-    #     try:
-    #         # Replicate logic from your original app.py
-    #         suggestion = TravelSuggestion(
-    #             conversation_id=self.conversation.id,
-    #             type='flight',
-    #             title=flight_data.get('title'),
-    #             description=flight_data.get('description'),
-    #             price=flight_data.get('price'),
-    #             rating=None, # Flights don't have ratings
-    #             image_url=flight_data.get('image_url'),
-    #             booking_url=flight_data.get('booking_url'),
-    #             location={
-    #                 'origin': flight_data.get('origin_code'), 
-    #                 'destination': flight_data.get('destination_code')
-    #             }
-    #         )
-    #         db.session.add(suggestion)
-    #         print(f"Added flight suggestion to session: {flight_data.get('title')}")
-    #     except Exception as e:
-    #         print(f"Error saving flight suggestion: {e}")
