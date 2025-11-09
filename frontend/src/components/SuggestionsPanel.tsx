@@ -21,7 +21,13 @@ interface Suggestion {
   rating: number;
   image_url: string;
   booking_url: string;
-  location: { lat?: number; lng?: number; address?: string } | null;
+  location: { 
+    lat?: number; 
+    lng?: number; 
+    address?: string;
+    origin?: string;      // Added for flights
+    destination?: string; // Added for flights
+  } | null;
 }
 
 interface GroupedSuggestions {
@@ -36,7 +42,7 @@ interface SuggestionsPanelProps {
   refreshKey: number;
 }
 
-const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) => {
+const SuggestionsPanel = ({ conversationId, refreshKey }: SuggestionsPanelProps) => {
   const [suggestions, setSuggestions] = useState<GroupedSuggestions>({
     flights: [],
     hotels: [],
@@ -54,13 +60,13 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
     loadSuggestions();
     const interval = setInterval(() => {
       loadSuggestions();
-    }, 5000);
+    }, 5000); // Polls for new suggestions
     return () => {
       clearInterval(interval);
     };
   }, [conversationId, refreshKey]);
 
-  // --- loadSuggestions (Corrected) ---
+  // --- loadSuggestions (Unchanged) ---
   const loadSuggestions = async () => {
     if (!conversationId) return;
 
@@ -95,6 +101,7 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
         } else if (suggestion.type === "restaurant") {
           grouped.restaurants.push(suggestion);
         } else {
+          // Default to attraction
           grouped.attractions.push(suggestion);
         }
       });
@@ -104,7 +111,6 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
       }
 
       setSuggestions(grouped);
-      // --- END: Corrected logic ---
 
     } catch (error) {
       console.error("Failed to load suggestions:", error);
@@ -113,10 +119,10 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
     }
   };
 
-  // --- renderStars (Cleaned) ---
+  // --- renderStars (Unchanged) ---
   const renderStars = (rating: number) => {
     const fullStars = Math.floor(rating);
-    const halfStar = rating % 1 !== 0;
+    const halfStar = rating % 1 !== 0; // Logic for half star if you add icon
     const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
     
     return (
@@ -132,10 +138,10 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
     );
   };
 
-  // --- The main return (no changes) ---
+  // --- The main return (UPDATED) ---
   return (
     <div className="p-4 space-y-6 h-full overflow-y-auto">
-      {loading && suggestions.hotels.length === 0 && (
+      {loading && suggestions.hotels.length === 0 && suggestions.flights.length === 0 && (
         <p className="text-center text-gray-500">Loading suggestions...</p>
       )}
 
@@ -147,7 +153,51 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
           </p>
         )}
 
-      {/* Render Hotels */}
+      {/* --- NEW: Render Flights --- */}
+      {suggestions.flights.length > 0 && (
+        <section>
+          <h2 className="text-2xl font-bold mb-4 flex items-center">
+            <Plane className="mr-2" /> Flights
+          </h2>
+          <div className="grid grid-cols-1 gap-4">
+            {suggestions.flights.map((flight) => (
+              <Card key={flight.id} className="overflow-hidden shadow-md flex flex-col sm:flex-row">
+                {flight.image_url && flight.image_url !== "N/A" && (
+                  <div className="flex-shrink-0 bg-white p-4 flex items-center justify-center sm:w-32">
+                    <img
+                      src={flight.image_url}
+                      alt="Airline logo"
+                      className="h-16 w-16 sm:h-24 sm:w-24 object-contain"
+                    />
+                  </div>
+                )}
+                <CardContent className="p-4 flex-grow">
+                  <h3 className="text-lg font-semibold">{flight.title}</h3>
+                  <p className="text-sm text-gray-700 mt-1 line-clamp-2">
+                    {flight.description}
+                  </p>
+                  <div className="flex justify-between items-center mt-4">
+                    <Badge variant="secondary" className="text-lg font-semibold">
+                      ${flight.price ? flight.price.toFixed(2) : 'N/A'}
+                    </Badge>
+                    <Button
+                      asChild
+                      size="sm"
+                      onClick={() => window.open(flight.booking_url, "_blank")}
+                    >
+                      <a href={flight.booking_url} target="_blank" rel="noopener noreferrer">
+                        Book Now <ExternalLink size={16} className="ml-2" />
+                      </a>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Render Hotels (Unchanged) */}
       {suggestions.hotels.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-4 flex items-center">
@@ -168,7 +218,7 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
                   {hotel.rating > 0 && (
                     <div className="flex items-center my-2 gap-2">
                       {renderStars(hotel.rating)}
-                D       <span className="text-sm text-gray-600">({hotel.rating.toFixed(1)} / 5)</span>
+                      <span className="text-sm text-gray-600">({hotel.rating.toFixed(1)} / 5)</span>
                     </div>
                   )}
                   <p className="text-sm text-gray-700 mt-1 line-clamp-2">
@@ -194,13 +244,13 @@ const SuggestionsPanel = ({ conversationId,refreshKey }: SuggestionsPanelProps) 
                   </div>
                 </CardContent>
               </Card>
-              ))}
+            ))}
           </div>
         </section>
       )}
 
-      {/* Add sections for flights, restaurants, etc. here */}
-   </div>
+      {/* Add sections for restaurants, etc. here */}
+    </div>
   );
 };
 
