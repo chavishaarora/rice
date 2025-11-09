@@ -87,6 +87,86 @@ class ItineraryManager:
             "stays": self.stays,
             "activities": self.activities
         }
+    
+    
+    def get_final_itinerary_summary(self) -> str:
+        """
+        Generates a human-readable, detailed summary of the current, confirmed 
+        itinerary items (flights, hotel, POIs) to be printed to the user.
+        """
+        summary = ["\n🎉 **Your Epic Trip Itinerary is Ready!** ✈️🏨\n"]
+        total_price = 0.0
+
+        # --- FLIGHTS ---
+        summary.append("## ✈️ Flights")
+        
+        # Outbound Flight
+        if self.journey_to:
+            flight = self.journey_to
+            summary.append(f"* **Outbound:** {flight['title']} - Price: ${flight['price']:.2f}")
+            summary.append(f"  > 📅 Date: {flight['location'].get('departure', 'N/A')} | [Book Now]({flight['booking_url']})")
+            total_price += flight['price'] if flight['price'] > 0 else 0
+        else:
+            summary.append("* **Outbound Flight:** Not yet booked.")
+
+        # Inbound Flight
+        if self.journey_from:
+            flight = self.journey_from
+            summary.append(f"* **Inbound:** {flight['title']} - Price: ${flight['price']:.2f}")
+            summary.append(f"  > 📅 Date: {flight['location'].get('departure', 'N/A')} | [Book Now]({flight['booking_url']})")
+            total_price += flight['price'] if flight['price'] > 0 else 0
+        else:
+            summary.append("* **Inbound Flight:** Not yet booked.")
+
+        summary.append("\n---")
+        
+        # --- ACCOMMODATION ---
+        summary.append("## 🏨 Accommodation")
+        if self.stays:
+            # We assume the user has 'selected' one, but list all if multiple are present
+            for i, stay in enumerate(self.stays):
+                title = stay['title']
+                rating = f" ({stay['rating']:.1f}/5 stars)" if stay['rating'] else ""
+                summary.append(f"* **{title}**{rating} - Price (Total): ${stay['price']:.2f}")
+                summary.append(f"  > 📍 Address: {stay['location'].get('address', 'N/A')}")
+                summary.append(f"  > [View Deal]({stay['booking_url']})")
+                
+                # Only add the cost of the *first* hotel to the total if multiple are listed
+                # (Assuming multiple hotels are alternatives, not consecutive stays)
+                if i == 0:
+                     total_price += stay['price'] if stay['price'] > 0 else 0
+        else:
+            summary.append("* **Hotel/Stay:** No accommodation selected yet.")
+
+        summary.append("\n---")
+        
+        # --- LOCAL POINTS OF INTEREST (Shops & Leisure) ---
+        
+        # Local Shops
+        summary.append("## 🛒 Essential Stops (Supermarkets/Shops)")
+        if self.shops:
+            shop_names = [f"**{s['title']}** ({s['location'].get('address', 'N/A')})" for s in self.shops[:3]]
+            summary.append(f"* Found {len(self.shops)} nearby essential shops. Top 3 are:")
+            summary.append(f"  > {'; '.join(shop_names)}")
+        else:
+            summary.append("* No local essential shops pre-loaded.")
+
+        # Local Leisure
+        summary.append("\n## 🎭 Local Leisure & Entertainment")
+        if self.leisure:
+            leisure_names = [f"**{l['title']}** ({l['location'].get('city', 'N/A')})" for l in self.leisure[:5]]
+            summary.append(f"* Found {len(self.leisure)} leisure activities. Top 5 suggestions:")
+            summary.append(f"  > {'; '.join(leisure_names)}")
+        else:
+            summary.append("* No local leisure activities pre-loaded.")
+
+        summary.append("\n---")
+
+        # --- TOTAL COST ESTIMATE ---
+        summary.append(f"## 💰 **Estimated Confirmed Trip Cost** (Flights + Accommodation)")
+        summary.append(f"* **Total Estimate:** **${total_price:.2f}** (Excluding Activities/Meals)")
+
+        return "\n".join(summary)
 
     def add_hotel(self, hotel_data, **kwargs) -> dict:
         """

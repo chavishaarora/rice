@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session
 from database import db, User, Conversation, Message, TravelSuggestion
 from agents.chat_agent import ChatService # The new "brain"
+from agents.iternerary_manager import ItineraryManager
 import uuid
 
 chat_bp = Blueprint('chat', __name__)
@@ -92,3 +93,26 @@ def get_suggestions(conversation_id):
             'location': s.location
         } for s in suggestions]
     })
+
+
+@chat_bp.route('/suggestions/<conversation_id>/itinerary-summary', methods=['GET'])
+def get_itinerary(conversation_id):
+    """Get travel suggestions for a conversation"""
+    try:
+        # 1. Load Conversation and Itinerary Manager
+        conversation = Conversation.query.get(id)
+        print("Hello World!")
+        if not conversation:
+            return jsonify({"error": "Conversation not found"}), 404
+            
+        itinerary_manager = ItineraryManager(conversation)
+        
+        summary_string = itinerary_manager.get_final_itinerary_summary()
+        print(summary_string)
+        
+        return jsonify({"summary": summary_string}), 200
+        
+    except Exception as e:
+        # Handle errors gracefully by returning JSON
+        print(f"Error generating itinerary summary: {e}")
+        return jsonify({"error": "Internal server error"}), 500

@@ -39,10 +39,4 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    with app.app_context():
-        print("\n--- Registered Routes ---")
-        for rule in app.url_map.iter_rules():
-            if 'select_suggestion' in str(rule):
-                print(f"Endpoint: {rule.endpoint}, Methods: {rule.methods}, Rule: {rule}")
-        print("-------------------------\n")
     app.run(debug=True, port=5001)

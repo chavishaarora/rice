@@ -177,6 +177,7 @@ class ChatService:
             function_calls = [] # No function calls
 
         if function_calls:
+            self._save_status(f"Engine is now performing {len(function_calls)} actions. Processing...")
             print(f"Detected {len(function_calls)} tool call(s).")
             
             # This list will hold the *results* we send back
@@ -189,6 +190,7 @@ class ChatService:
                 print(f"Executing Tool: {tool_name} with args: {tool_args}")
 
                 if tool_name == "search_hotels":
+                    self._save_status(f"⏳ Searching for hotels in **{tool_args.get('city')}**...")
                     # Update destination preference immediately
                     self.prefs['destination'] = tool_args.get('city') 
                     
@@ -213,6 +215,7 @@ class ChatService:
 
 
                 elif tool_name == "search_flights":
+                    self._save_status(f"✈️ Searching for flights from **{tool_args.get('origin_city')}** to **{tool_args.get('destination_city')}**...")
                     try:
                         tool_result = search_flights(
                             origin_city=tool_args.get('origin_city'),
@@ -228,6 +231,7 @@ class ChatService:
                         tool_result = {"error": str(e)}
                     
                 elif tool_name == "get_activity_recommendations":
+                    self._save_status(f"✨ Generating personalized activities for **{tool_args.get('destination')}**...")
                     itinerary_text = self._get_activity_itinerary(
                         tool_args.get('destination'), 
                         tool_args.get('activities')
@@ -241,6 +245,7 @@ class ChatService:
                     }
 
                 elif tool_name == "search_shops":
+                    self._save_status(f"🛒 Pre-loading local points of interest (supermarkets, essentials) in **{tool_args.get('city')}**...")
                     tool_result = search_shops(
                         city=tool_args.get('city'),
                         categories=tool_args.get('categories')
@@ -250,6 +255,7 @@ class ChatService:
                     print(tool_result)
                 
                 elif tool_name == "search_leisure":
+                    self._save_status(f"🎭 Pre-loading leisure activities and entertainment options in **{tool_args.get('city')}**...")
                     tool_result = search_leisure(
                         city=tool_args.get('city'),
                         categories=tool_args.get('categories')
@@ -318,3 +324,17 @@ class ChatService:
     def _update_prefs_from_text(self, text):
         # A simple LLM call or regex to extract entities from the user's
         pass
+
+    def _save_status(self, status_text: str):
+        """Saves a temporary status message to the database for frontend display."""
+        # Use a special 'status' role so the frontend knows to display this 
+        # as a non-conversational update.
+        db.session.add(Message(
+            conversation_id=self.conversation.id, 
+            role='status', 
+            content=status_text
+        ))
+        # Commit immediately so the frontend can retrieve it
+        db.session.commit()
+        # Optional: log to console as well for debugging
+        print(f"**STATUS UPDATE**: {status_text}")

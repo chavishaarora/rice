@@ -101,6 +101,13 @@ class ApiClient {
   async healthCheck() {
     return this.request('/health');
   }
+
+  async getItinerarySummary(conversationId: string): Promise<string> {
+    const response = await fetch(`/api/conversation/${conversationId}/itinerary-summary`);
+    if (!response.ok) throw new Error("Failed to fetch itinerary summary");
+    const data = await response.json();
+    return data.summary;
+  }
 }
 
 export const api = new ApiClient();
